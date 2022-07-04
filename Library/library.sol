@@ -5,6 +5,13 @@ import "./ownable.sol" as ownable;
 
 contract Library is ownable.Ownable{
 
+    enum EventType{
+        BookAdded,
+        BookCopyAdded,
+        BookTaken,
+        BookReturned
+    }
+
     struct Book{
         string name;
         string ISBN;
@@ -26,16 +33,22 @@ contract Library is ownable.Ownable{
     uint[] private bookIds;
     Book[] private availableBooks;
 
-    function addBook(string calldata name, string calldata ISBN, string calldata authorName, uint releseDate, uint id) public onlyOwner{
+    event LogEvent(address, Book, EventType);
 
+    function addBook(string calldata name, string calldata ISBN, string calldata authorName, uint releseDate) public onlyOwner{
+            uint id = stringToUint(ISBN);
             if(booksMap[id].id == 0){
                 Book memory book = Book(name, ISBN, authorName, id, releseDate, 1);
                 booksMap[id] = book;
                 bookIds.push(id);
+                emit LogEvent(msg.sender, booksMap[id], EventType.BookAdded);
             }
             else{
-                
+                require((keccak256(abi.encodePacked((name))) == keccak256(abi.encodePacked((booksMap[id].name)))), "A different book with this ISBN already exists");
+                require((keccak256(abi.encodePacked((authorName))) == keccak256(abi.encodePacked((booksMap[id].authorName)))), "A different book with this ISBN already exists");
+                require(releseDate == booksMap[id].releseDate, "A different book with this ISBN already exists");
                 booksMap[id].availableCopies++;
+                emit LogEvent(msg.sender, booksMap[id], EventType.BookCopyAdded);
             }
     }
 
@@ -50,6 +63,7 @@ contract Library is ownable.Ownable{
         }
         currentlyTakenBooks[id].takingMap[msg.sender] = true;
         currentlyTakenBooks[id].addressList.push(msg.sender);
+        emit LogEvent(msg.sender, booksMap[id], EventType.BookTaken);
     }
 
     function returnBook(uint id) public{
@@ -63,6 +77,7 @@ contract Library is ownable.Ownable{
                 break;
             }
         }
+        emit LogEvent(msg.sender, booksMap[id], EventType.BookReturned);
     }
 
     function listUsersWhoTookBook(uint id) public view returns(address[] memory){
@@ -81,4 +96,17 @@ contract Library is ownable.Ownable{
         require(availableBooks.length > 0, "There are no available books");
         return availableBooks;
     }
+
+
+    function stringToUint(string memory s) internal pure returns (uint) {
+        bytes memory b = bytes(s);
+        uint result = 0;
+        for (uint i = 0; i < b.length; i++) {
+            uint c = uint(uint8(b[i]));
+            result += c;
+        }
+        return result;
+    }
+
+
 }
