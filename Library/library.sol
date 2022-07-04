@@ -23,24 +23,23 @@ contract Library is ownable.Ownable{
 
     struct takingArchive {
         address[] addressList;
-        mapping(address => bool) takingMap;
+        mapping(address => uint) takingMap;
     }
 
     mapping(uint => takingArchive) private currentlyTakenBooks;
     mapping(uint => takingArchive) private takenBooks;
     
     mapping(uint => Book) private booksMap;
-    uint[] private bookIds;
     Book[] private availableBooks;
+    mapping(uint => uint) private availableIndexMap;
 
     event LogEvent(address, Book, EventType);
 
     function addBook(string calldata name, string calldata ISBN, string calldata authorName, uint releseDate) public onlyOwner{
-            uint id = stringToUint(ISBN);
+            uint id = uint(keccak256(abi.encodePacked((ISBN)))) % 100;
             if(booksMap[id].id == 0){
                 Book memory book = Book(name, ISBN, authorName, id, releseDate, 1);
                 booksMap[id] = book;
-                bookIds.push(id);
                 emit LogEvent(msg.sender, booksMap[id], EventType.BookAdded);
             }
             else{
@@ -50,32 +49,51 @@ contract Library is ownable.Ownable{
                 booksMap[id].availableCopies++;
                 emit LogEvent(msg.sender, booksMap[id], EventType.BookCopyAdded);
             }
+
+            if(availableIndexMap[id] == 0){
+                availableBooks.push(booksMap[id]);
+                availableIndexMap[id] = availableBooks.length;
+            }
+            else{
+                availableBooks[availableIndexMap[id] - 1].availableCopies++;
+            }
     }
 
     function takeBook(uint id) public{
         require(booksMap[id].availableCopies > 0, "Book is not currently not available");
-        require(!currentlyTakenBooks[id].takingMap[msg.sender], "User has already borrowed a copy of this book");
+        require(currentlyTakenBooks[id].takingMap[msg.sender] == 0 , "User has already borrowed a copy of this book");
         booksMap[id].availableCopies--;
 
-        if(!takenBooks[id].takingMap[msg.sender]){
+        if(takenBooks[id].takingMap[msg.sender] == 0){
             takenBooks[id].addressList.push(msg.sender);
-            takenBooks[id].takingMap[msg.sender] = true;
+            takenBooks[id].takingMap[msg.sender] = takenBooks[id].addressList.length;
         }
-        currentlyTakenBooks[id].takingMap[msg.sender] = true;
         currentlyTakenBooks[id].addressList.push(msg.sender);
+        currentlyTakenBooks[id].takingMap[msg.sender] = currentlyTakenBooks[id].addressList.length;
+
+        availableBooks[availableIndexMap[id] - 1].availableCopies--;
+        if(booksMap[id].availableCopies == 0){
+            availableBooks[availableIndexMap[id] - 1] = availableBooks[availableBooks.length - 1];
+            availableIndexMap[availableBooks[availableIndexMap[id] - 1].id] = availableBooks[availableIndexMap[id] - 1].availableCopies;
+            availableBooks.pop();
+            availableIndexMap[id] = 0;
+        }
         emit LogEvent(msg.sender, booksMap[id], EventType.BookTaken);
     }
 
     function returnBook(uint id) public{
-        require(currentlyTakenBooks[id].takingMap[msg.sender], "User has not borrowed this book");
+        require(currentlyTakenBooks[id].takingMap[msg.sender] > 0, "User has not borrowed this book");
         booksMap[id].availableCopies++;
-        currentlyTakenBooks[id].takingMap[msg.sender] = false;
-        for(uint i = 0; i < currentlyTakenBooks[id].addressList.length; i++){
-            if(currentlyTakenBooks[id].addressList[i] == msg.sender){
-                currentlyTakenBooks[id].addressList[i] = currentlyTakenBooks[id].addressList[currentlyTakenBooks[id].addressList.length - 1];
-                currentlyTakenBooks[id].addressList.pop();
-                break;
-            }
+        currentlyTakenBooks[id].addressList[currentlyTakenBooks[id].takingMap[msg.sender] - 1] = currentlyTakenBooks[id].addressList[currentlyTakenBooks[id].addressList.length - 1];
+        currentlyTakenBooks[id].takingMap[currentlyTakenBooks[id].addressList[currentlyTakenBooks[id].takingMap[msg.sender] - 1]] = currentlyTakenBooks[id].takingMap[msg.sender];
+        currentlyTakenBooks[id].takingMap[msg.sender] = 0;
+        currentlyTakenBooks[id].addressList.pop();
+        if(availableIndexMap[id] == 0){
+            availableBooks.push(booksMap[id]);
+            availableIndexMap[id] = availableBooks.length;
+        }
+        else{
+            availableBooks[availableIndexMap[id] - 1].availableCopies++;
         }
         emit LogEvent(msg.sender, booksMap[id], EventType.BookReturned);
     }
@@ -85,27 +103,9 @@ contract Library is ownable.Ownable{
         return takenBooks[id].addressList;
     }
 
-    function getAvailableBooks() public returns(Book[] memory){
-        require(bookIds.length > 0, "There are no books in the library");
-        delete availableBooks;
-        for(uint i = 0; i < bookIds.length; i++){
-            if(booksMap[bookIds[i]].availableCopies > 0){
-                availableBooks.push(booksMap[bookIds[i]]);
-            }
-        }
+    function getAvailableBooks() public view returns(Book[] memory){
         require(availableBooks.length > 0, "There are no available books");
         return availableBooks;
-    }
-
-
-    function stringToUint(string memory s) internal pure returns (uint) {
-        bytes memory b = bytes(s);
-        uint result = 0;
-        for (uint i = 0; i < b.length; i++) {
-            uint c = uint(uint8(b[i]));
-            result += c;
-        }
-        return result;
     }
 
 
