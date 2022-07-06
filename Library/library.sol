@@ -147,11 +147,9 @@ contract Library is Ownable{
             require(success, "send failed");
         }
 
-        book.availableCopies--;
         book.previouslyTaken.push(msg.sender);
-
         currentlyTakenBooks[_id][msg.sender] = true;
-        if(book.availableCopies == 0){
+        if(--book.availableCopies == 0){
             removeAvailableBook(_id);
         }
 
