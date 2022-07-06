@@ -1,112 +1,179 @@
 // SPDX-License-Identifier: UNLICENSED 
 pragma solidity ^0.8.0; 
-pragma abicoder v2; 
-import "./ownable.sol" as ownable;
+pragma abicoder v2;
 
-contract Library is ownable.Ownable{
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-    enum EventType{
-        BookAdded,
-        BookCopyAdded,
-        BookTaken,
-        BookReturned
-    }
-
+library BookMap{
     struct Book{
         string name;
-        string ISBN;
-        string authorName;
-        uint id;
-        uint releseDate;
-        uint availableCopies;
+        uint8 availableCopies;
+        address[] previouslyTaken;
     }
 
-    struct takingArchive {
-        address[] addressList;
-        mapping(address => uint) takingMap;
+    struct Map {
+        uint8[] keys;
+        mapping(uint8 => Book) books;
+        mapping(uint8 => uint8) indexOf;
+        mapping(uint8 => bool) inserted;
     }
 
-    mapping(uint => takingArchive) private currentlyTakenBooks;
-    mapping(uint => takingArchive) private takenBooks;
+    function get(Map storage map, uint8 key) internal view returns (Book storage) {
+        return map.books[key];
+    }
+
+    function getKeyAtIndex(Map storage map, uint8 index) internal view returns (uint8) {
+        return map.keys[index];
+    }
+
+    function size(Map storage map) internal view returns (uint8) {
+        return uint8(map.keys.length);
+    }
+
+    function set(
+        Map storage map,
+        uint8 key,
+        Book memory _book
+    ) internal {
+        if (map.inserted[key]) {
+            map.books[key].availableCopies++;
+        } else {
+            map.inserted[key] = true;
+            map.books[key] = _book;
+            map.indexOf[key] = uint8(map.keys.length);
+            map.keys.push(key);
+        }
+    }
+
+    function remove(Map storage map, uint8 key) internal {
+        if (!map.inserted[key]) {
+            return;
+        }
+
+        delete map.inserted[key];
+        delete map.books[key];
+
+        uint8 index = map.indexOf[key];
+        uint8 lastIndex = uint8(map.keys.length) - 1;
+        uint8 lastKey = map.keys[lastIndex];
+
+        map.indexOf[lastKey] = index;
+        delete map.indexOf[key];
+
+        map.keys[index] = lastKey;
+        map.keys.pop();
+    }
+}
+
+contract Library is Ownable{
+    using BookMap for BookMap.Map;
+
+    event addBookEvent(uint8 id, BookMap.Book book);
+    event borrowBookEvent(address indexed takenBy, uint8 id, BookMap.Book book);
+    event returnBookEvent(address indexed returnedBy, uint8 id, BookMap.Book book);
+
+    modifier BookExists(uint8 _id) {
+        require(libraryMap.inserted[_id], "This book is not available");
+        _;
+    }
+    BookMap.Map private libraryMap;
+
+    uint public immutable takingFee;
     
-    mapping(uint => Book) private booksMap;
-    Book[] private availableBooks;
-    mapping(uint => uint) private availableIndexMap;
+    mapping(uint8 => mapping(address => bool)) private currentlyTakenBooks;
 
-    event LogEvent(address, Book, EventType);
+    uint8[] private availableIds;
+    mapping(uint8 => uint8) private availableIndexMap;
+    mapping(uint8 => bool) private availableInsertedMap;
 
-    function addBook(string calldata name, string calldata ISBN, string calldata authorName, uint releseDate) public onlyOwner{
-            uint id = uint(keccak256(abi.encodePacked((ISBN)))) % 100;
-            if(booksMap[id].id == 0){
-                Book memory book = Book(name, ISBN, authorName, id, releseDate, 1);
-                booksMap[id] = book;
-                emit LogEvent(msg.sender, booksMap[id], EventType.BookAdded);
-            }
-            else{
-                require((keccak256(abi.encodePacked((name))) == keccak256(abi.encodePacked((booksMap[id].name)))), "A different book with this ISBN already exists");
-                require((keccak256(abi.encodePacked((authorName))) == keccak256(abi.encodePacked((booksMap[id].authorName)))), "A different book with this ISBN already exists");
-                require(releseDate == booksMap[id].releseDate, "A different book with this ISBN already exists");
-                booksMap[id].availableCopies++;
-                emit LogEvent(msg.sender, booksMap[id], EventType.BookCopyAdded);
-            }
-
-            if(availableIndexMap[id] == 0){
-                availableBooks.push(booksMap[id]);
-                availableIndexMap[id] = availableBooks.length;
-            }
-            else{
-                availableBooks[availableIndexMap[id] - 1].availableCopies++;
-            }
+    constructor(uint _fee) {
+        takingFee = _fee;
     }
 
-    function takeBook(uint id) public{
-        require(booksMap[id].availableCopies > 0, "Book is not currently not available");
-        require(currentlyTakenBooks[id].takingMap[msg.sender] == 0 , "User has already borrowed a copy of this book");
-        booksMap[id].availableCopies--;
+    receive() external payable {}
 
-        if(takenBooks[id].takingMap[msg.sender] == 0){
-            takenBooks[id].addressList.push(msg.sender);
-            takenBooks[id].takingMap[msg.sender] = takenBooks[id].addressList.length;
+    function addAvailableBook(uint8 _id) private {
+        if(!availableInsertedMap[_id]){
+            availableInsertedMap[_id] = true;
+            availableIndexMap[_id] = uint8(availableIds.length);
+            availableIds.push(_id);
         }
-        currentlyTakenBooks[id].addressList.push(msg.sender);
-        currentlyTakenBooks[id].takingMap[msg.sender] = currentlyTakenBooks[id].addressList.length;
+    }
 
-        availableBooks[availableIndexMap[id] - 1].availableCopies--;
-        if(booksMap[id].availableCopies == 0){
-            availableBooks[availableIndexMap[id] - 1] = availableBooks[availableBooks.length - 1];
-            availableIndexMap[availableBooks[availableIndexMap[id] - 1].id] = availableBooks[availableIndexMap[id] - 1].availableCopies;
-            availableBooks.pop();
-            availableIndexMap[id] = 0;
+    function removeAvailableBook(uint8 _id) private {
+        if (!availableInsertedMap[_id]) {
+            return;
         }
-        emit LogEvent(msg.sender, booksMap[id], EventType.BookTaken);
+
+        uint8 index = availableIndexMap[_id];
+        uint8 lastIndex = uint8(availableIds.length) - 1;
+        uint8 lastId = availableIds[lastIndex];
+        availableIds[index] = availableIds[lastIndex];
+        availableIds.pop();
+        availableIndexMap[lastId] = index;
+
+        delete availableIndexMap[_id];
+        delete availableInsertedMap[_id];
     }
 
-    function returnBook(uint id) public{
-        require(currentlyTakenBooks[id].takingMap[msg.sender] > 0, "User has not borrowed this book");
-        booksMap[id].availableCopies++;
-        currentlyTakenBooks[id].addressList[currentlyTakenBooks[id].takingMap[msg.sender] - 1] = currentlyTakenBooks[id].addressList[currentlyTakenBooks[id].addressList.length - 1];
-        currentlyTakenBooks[id].takingMap[currentlyTakenBooks[id].addressList[currentlyTakenBooks[id].takingMap[msg.sender] - 1]] = currentlyTakenBooks[id].takingMap[msg.sender];
-        currentlyTakenBooks[id].takingMap[msg.sender] = 0;
-        currentlyTakenBooks[id].addressList.pop();
-        if(availableIndexMap[id] == 0){
-            availableBooks.push(booksMap[id]);
-            availableIndexMap[id] = availableBooks.length;
+    function getBalance() external view onlyOwner returns (uint){
+        return address(this).balance;
+    }
+
+    function withdraw() external onlyOwner{
+        require(address(this).balance > 0, "No fees to be withdrawn");
+        bool success = payable(msg.sender).send(address(this).balance);
+        require(success, "send failed");
+    }
+
+    function addBook(string calldata _name) external onlyOwner{
+        uint8 id = uint8(uint(keccak256(abi.encodePacked((_name))))) % 100 + 1;
+        BookMap.Book memory book;
+        book.name = _name;
+        book.availableCopies = 1;
+        libraryMap.set(id, book);
+        addAvailableBook(id);
+        emit addBookEvent(id, book);
+    }
+
+    function takeBook(uint8 _id) external payable BookExists(_id){
+        BookMap.Book storage book = libraryMap.get(_id);
+        require(book.availableCopies > 0, "Book is not currently not available");
+        require(!currentlyTakenBooks[_id][msg.sender]  , "User has already borrowed a copy of this book");
+        require(msg.value >= takingFee, "Not enough ether to borrow book");
+
+        if(msg.value > takingFee){
+            bool success = payable(msg.sender).send(msg.value - takingFee);
+            require(success, "send failed");
         }
-        else{
-            availableBooks[availableIndexMap[id] - 1].availableCopies++;
+
+        book.availableCopies--;
+        book.previouslyTaken.push(msg.sender);
+
+        currentlyTakenBooks[_id][msg.sender] = true;
+        if(book.availableCopies == 0){
+            removeAvailableBook(_id);
         }
-        emit LogEvent(msg.sender, booksMap[id], EventType.BookReturned);
+
+        emit borrowBookEvent(msg.sender, _id, book);
     }
 
-    function listUsersWhoTookBook(uint id) public view returns(address[] memory){
-        require(booksMap[id].id != 0, "This book is not available");
-        return takenBooks[id].addressList;
+    function returnBook(uint8 _id) external BookExists(_id){
+        require(currentlyTakenBooks[_id][msg.sender], "User has not borrowed this book");
+        BookMap.Book storage book = libraryMap.get(_id);
+        book.availableCopies++;
+        delete currentlyTakenBooks[_id][msg.sender];
+        addAvailableBook(_id);
+
+        emit returnBookEvent(msg.sender, _id, book);
     }
 
-    function getAvailableBooks() public view returns(Book[] memory){
-        require(availableBooks.length > 0, "There are no available books");
-        return availableBooks;
+    function listUsersWhoTookBook(uint8 _id) external view BookExists(_id) returns(address[] memory){
+        return libraryMap.get(_id).previouslyTaken;
     }
 
-
+    function getAvailableBooks() external view returns(uint8[] memory){
+        require(availableIds.length > 0, "There are no available books");
+        return availableIds;
+    }
 }
