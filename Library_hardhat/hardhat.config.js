@@ -16,8 +16,6 @@ task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
 /**
  * @type import('hardhat/config').HardhatUserConfig
  */
- const INFURA_API_KEY = "01bebb09ee3b4a07b02534e76ada95f6";
- const PRIVATE_KEY = "98011c792d961d8a243163090abfcd1b9dbe775ac329e5222eebc4e7a40789b6"
 
  module.exports = { 
   networks: { 
