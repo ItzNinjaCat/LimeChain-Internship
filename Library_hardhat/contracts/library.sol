@@ -22,13 +22,13 @@ library BookMap{
         return map.books[key];
     }
 
-    function getKeyAtIndex(Map storage map, uint8 index) internal view returns (uint8) {
-        return map.keys[index];
-    }
+    // function getKeyAtIndex(Map storage map, uint8 index) internal view returns (uint8) {
+    //     return map.keys[index];
+    // }
 
-    function size(Map storage map) internal view returns (uint8) {
-        return uint8(map.keys.length);
-    }
+    // function size(Map storage map) internal view returns (uint8) {
+    //     return uint8(map.keys.length);
+    // }
 
     function set(
         Map storage map,
@@ -45,24 +45,24 @@ library BookMap{
         }
     }
 
-    function remove(Map storage map, uint8 key) internal {
-        if (!map.inserted[key]) {
-            return;
-        }
+    // function remove(Map storage map, uint8 key) internal {
+    //     if (!map.inserted[key]) {
+    //         return;
+    //     }
 
-        delete map.inserted[key];
-        delete map.books[key];
+    //     delete map.inserted[key];
+    //     delete map.books[key];
 
-        uint8 index = map.indexOf[key];
-        uint8 lastIndex = uint8(map.keys.length) - 1;
-        uint8 lastKey = map.keys[lastIndex];
+    //     uint8 index = map.indexOf[key];
+    //     uint8 lastIndex = uint8(map.keys.length) - 1;
+    //     uint8 lastKey = map.keys[lastIndex];
 
-        map.indexOf[lastKey] = index;
-        delete map.indexOf[key];
+    //     map.indexOf[lastKey] = index;
+    //     delete map.indexOf[key];
 
-        map.keys[index] = lastKey;
-        map.keys.pop();
-    }
+    //     map.keys[index] = lastKey;
+    //     map.keys.pop();
+    // }
 }
 
 contract Library is Ownable{
@@ -101,10 +101,6 @@ contract Library is Ownable{
     }
 
     function removeAvailableBook(uint8 _id) private {
-        if (!availableInsertedMap[_id]) {
-            return;
-        }
-
         uint8 index = availableIndexMap[_id];
         uint8 lastIndex = uint8(availableIds.length) - 1;
         uint8 lastId = availableIds[lastIndex];

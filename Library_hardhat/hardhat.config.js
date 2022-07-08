@@ -1,5 +1,10 @@
-require("@nomiclabs/hardhat-waffle");
+const { ethers } = require("ethers");
 
+require("@nomiclabs/hardhat-waffle");
+require("@nomiclabs/hardhat-etherscan");
+//require("@nomiclabs/hardhat-ethers");
+require('solidity-coverage');
+require("dotenv").config();
 // This is a sample Hardhat task. To learn how to create your own go to
 // https://hardhat.org/guides/create-task.html
 task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
@@ -16,17 +21,17 @@ task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
 /**
  * @type import('hardhat/config').HardhatUserConfig
  */
- const INFURA_API_KEY = "01bebb09ee3b4a07b02534e76ada95f6";
- const PRIVATE_KEY = "98011c792d961d8a243163090abfcd1b9dbe775ac329e5222eebc4e7a40789b6"
 
  module.exports = { 
   networks: { 
     ropsten: { 
-      url: `https://ropsten.infura.io/v3/${INFURA_API_KEY}`, 
-      accounts: [`${PRIVATE_KEY}`] 
+      url: `https://ropsten.infura.io/v3/${process.env.ROPSTEN_API_KEY}`, 
+      accounts: [`${process.env.PRIVATE_KEY}`] 
     } 
   },
-  
+  etherscan: {
+    apiKey: `${process.env.ETHERSCAN_API_KEY}`,
+  },
   solidity: { 
     version: "0.8.7", 
     settings: { 
@@ -36,5 +41,5 @@ task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
       }, 
     }, 
   },
- };
 
+ };
