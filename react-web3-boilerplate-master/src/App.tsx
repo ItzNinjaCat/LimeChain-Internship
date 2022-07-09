@@ -11,6 +11,8 @@ import Loader from './components/Loader';
 import ConnectButton from './components/ConnectButton';
 import Button from './components/Button';
 
+import Popup from 'reactjs-popup';
+import 'reactjs-popup/dist/index.css';
 import { Web3Provider } from '@ethersproject/providers';
 import { getChainData } from './helpers/utilities';
 
@@ -65,7 +67,7 @@ interface IAppState {
   info: any | null;
   addingBook: boolean;
   addingBookISBN : string;
-  availableBooks : Array<number>;
+  availableBooks : any;
   availableState : boolean;
 }
 
@@ -144,20 +146,20 @@ class App extends React.Component<any, any> {
     const { libraryContract, addingBookISBN} = this.state;
 		
 		await this.setState({ fetching: true });
-		await libraryContract.addBook(addingBookISBN);
+		const transaction = await libraryContract.addBook(addingBookISBN);
 
-		// await this.setState({ transactionHash: transaction.hash });
+		await this.setState({ transactionHash: transaction.hash });
 		
-		// const transactionReceipt = await transaction.wait();
-    // // libraryContract.on("addBookEvent", (id : any, book : any) => {
-    // //   console.log(id, book);
-    // // });
-		// if (transactionReceipt.status !== 1) { 
-		//   alert('This is an alert message');
-		// }		
+		const transactionReceipt = await transaction.wait();
+    libraryContract.on("addBookEvent", (id : any, book : any) => {
+      console.log(id, book);
+    });
+		if (transactionReceipt.status !== 1) { 
+		  alert('This is an alert message');
+		}		
     
     this.setState({
-      addingBook : true,
+      addingBook : false,
       addingBookISBN : "",
       fetching: false
     });
@@ -171,15 +173,19 @@ class App extends React.Component<any, any> {
 
   public getAvailableBooks = async () => {
     const { libraryContract } = this.state;
+    const tmp = await libraryContract.getAvailableBooks();
     this.setState({
       availableState : true,
-      availableBooks : libraryContract.getAvailableBooks()
+      availableBooks : Object.assign([], tmp)
     });
 
 
     
   };
 
+  // public takeBook = async () =>{
+    
+  // };
 
   public subscribeToProviderEvents = async (provider:any) => {
     if (!provider.on) {
@@ -276,7 +282,25 @@ class App extends React.Component<any, any> {
                 <SLanding center>
                   {!this.state.connected && <ConnectButton onClick={this.onConnect} />}
                   {this.state.connected && !this.state.addingBook && <Button children = "Add book" onClick={this.addBookButton} />}
-                  {this.state.addingBook &&
+                  {/* {this.state.connected && !this.state.addingBook && <Button children = "Borrow book" onClick={this.takeBook} />} */}
+                  {this.state.connected && this.state.addingBook &&
+                    <form onSubmit={this.addBook}>
+                      <input
+                        type="text"
+                        placeholder="Book title"
+                        value = {this.state.addingBookISBN}
+                        onChange={this.updateISBN}
+                      />
+                    <Popup  trigger = {open => (<Button children = "children"/>)} position="right center" modal nested>
+                      <div>Popup content here !!</div>
+                    </Popup>
+                      {/* <Button children = "Search for book" onClick={this.addBook}/> */}
+                      
+
+                    </form>
+                  }
+                  {this.state.connected && this.state.addingBook &&
+                    
                     <form onSubmit={this.addBook}>
                       <input
                         type="text"
@@ -287,10 +311,8 @@ class App extends React.Component<any, any> {
                       <Button children = "Add book" type="submit" onClick={this.addBook}/>
                     </form>
                   }
-                  { this.state.availableState &&
-                    this.state.availableBooks.map(({id, name}: any) => {
-                      return <li key={id}>{name}</li>;
-                    })
+                  { this.state.availableState && !this.state.addingBook &&
+                    this.state.availableBooks.map((name: any, index : number) =><li key = {index}>{name}</li>)
                   }                                
                   {this.state.connected && !this.state.addingBook && <Button children = "List available books" onClick={this.getAvailableBooks} />}
                 </SLanding>
