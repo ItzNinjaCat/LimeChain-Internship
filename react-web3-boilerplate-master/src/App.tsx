@@ -66,9 +66,11 @@ interface IAppState {
   libraryContract: any | null;
   info: any | null;
   addingBook: boolean;
+  searchText : string;
   addingBookISBN : string;
   availableBooks : any;
   availableState : boolean;
+  searchResult : any | null;
 }
 
 const INITIAL_STATE: IAppState = {
@@ -82,6 +84,8 @@ const INITIAL_STATE: IAppState = {
   libraryContract: null,
   info: null,
   addingBook : false,
+  searchText : "",
+  searchResult : [],
   addingBookISBN : "",
   availableBooks : [],
   availableState : false
@@ -137,27 +141,56 @@ class App extends React.Component<any, any> {
   };
 
   public addBookButton = async () => {
-    this.setState({
+    await this.setState({
       addingBook : true
     });
   };
 
-  public addBook = async () => {
+  public searchForBook = async (e : any) => {
+    e.preventDefault();
+    const response = await fetch(constants.GOOLE_BOOKS_API + 
+      this.state.searchText +
+      '&maxResults=40&key=' + 
+      process.env.REACT_APP_GOOGLE_API_KEY,
+    {
+      method: "GET"
+    })
+    await this.setState({
+      searchResult : (await response.json()).items
+    });
+    console.log(this.state.searchResult);
+  };
+
+  public addBook = async (e : any) => {
+    e.preventDefault();
     const { libraryContract, addingBookISBN} = this.state;
 		
 		await this.setState({ fetching: true });
-		const transaction = await libraryContract.addBook(addingBookISBN);
-
-		await this.setState({ transactionHash: transaction.hash });
-		
-		const transactionReceipt = await transaction.wait();
-    libraryContract.on("addBookEvent", (id : any, book : any) => {
-      console.log(id, book);
-    });
-		if (transactionReceipt.status !== 1) { 
-		  alert('This is an alert message');
-		}		
-    
+    const response = await fetch(constants.GOOLE_BOOKS_API +
+      "isbn:" +
+      addingBookISBN +
+      '&maxResults=40&key=' + 
+      process.env.REACT_APP_GOOGLE_API_KEY,
+    {
+      method: "GET"
+    })
+    if((await response.json()).totalItems === 0){
+      alert("Incorrect ISBN");
+    }
+    else{
+      console.log(this.state.searchResult);
+      const transaction = await libraryContract.addBook(addingBookISBN);
+  
+      await this.setState({ transactionHash: transaction.hash });
+      
+      const transactionReceipt = await transaction.wait();
+      libraryContract.on("addBookEvent", (id : any, book : any) => {
+        console.log(id, book);
+      });
+      if (transactionReceipt.status !== 1) { 
+        alert('This is an alert message');
+      }  
+    }
     this.setState({
       addingBook : false,
       addingBookISBN : "",
@@ -170,9 +203,15 @@ class App extends React.Component<any, any> {
       addingBookISBN : e.target.value
     });
   };
+  public updateSearchText = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    this.setState({
+      searchText : e.target.value
+    });
+  };
 
   public getAvailableBooks = async () => {
     const { libraryContract } = this.state;
+    console.log(this.state.searchResult);
     const tmp = await libraryContract.getAvailableBooks();
     this.setState({
       availableState : true,
@@ -182,6 +221,7 @@ class App extends React.Component<any, any> {
 
     
   };
+
 
   // public takeBook = async () =>{
     
@@ -284,19 +324,25 @@ class App extends React.Component<any, any> {
                   {this.state.connected && !this.state.addingBook && <Button children = "Add book" onClick={this.addBookButton} />}
                   {/* {this.state.connected && !this.state.addingBook && <Button children = "Borrow book" onClick={this.takeBook} />} */}
                   {this.state.connected && this.state.addingBook &&
-                    <form onSubmit={this.addBook}>
+                    <form onSubmit={this.searchForBook}>
                       <input
                         type="text"
                         placeholder="Book title"
-                        value = {this.state.addingBookISBN}
-                        onChange={this.updateISBN}
+                        value = {this.state.searchText}
+                        onChange={this.updateSearchText}
                       />
-                    <Popup  trigger = {open => (<Button children = "children"/>)} position="right center" modal nested>
-                      <div>Popup content here !!</div>
-                    </Popup>
-                      {/* <Button children = "Search for book" onClick={this.addBook}/> */}
                       
-
+                      <Popup  trigger = {open => (<Button children = "Search for book" type="submit"/>)} position="right center" modal>
+                        <ul style = {{overflowY : 'scroll', height:"200px"}}>
+                        {this.state.searchResult.map((data: any) =>
+                          <li key = {data.id} style = {{backgroundColor : "#fff"}}>
+                            Title : {data.volumeInfo.title} <br/>
+                            Subtitle : {data.volumeInfo.subtitle} <br/>
+                            Author : {data.volumeInfo.authors} <br/>
+                            Publish date : {data.volumeInfo.publishedDate}
+                          </li>)}                         
+                        </ul>
+                      </Popup>
                     </form>
                   }
                   {this.state.connected && this.state.addingBook &&
@@ -308,7 +354,7 @@ class App extends React.Component<any, any> {
                         value = {this.state.addingBookISBN}
                         onChange={this.updateISBN}
                       />
-                      <Button children = "Add book" type="submit" onClick={this.addBook}/>
+                      <Button children = "Add book" type="submit"/>
                     </form>
                   }
                   { this.state.availableState && !this.state.addingBook &&
