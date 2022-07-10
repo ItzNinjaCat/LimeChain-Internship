@@ -10,6 +10,7 @@ import Header from './components/Header';
 import Loader from './components/Loader';
 import ConnectButton from './components/ConnectButton';
 import Button from './components/Button';
+import Book from './components/Book';
 
 import Popup from 'reactjs-popup';
 import 'reactjs-popup/dist/index.css';
@@ -67,10 +68,11 @@ interface IAppState {
   info: any | null;
   addingBook: boolean;
   searchText : string;
+  searchResult : any | null;
+  searchSuccess : boolean;
   addingBookISBN : string;
   availableBooks : any;
   availableState : boolean;
-  searchResult : any | null;
 }
 
 const INITIAL_STATE: IAppState = {
@@ -86,6 +88,7 @@ const INITIAL_STATE: IAppState = {
   addingBook : false,
   searchText : "",
   searchResult : [],
+  searchSuccess : false,
   addingBookISBN : "",
   availableBooks : [],
   availableState : false
@@ -142,7 +145,8 @@ class App extends React.Component<any, any> {
 
   public addBookButton = async () => {
     await this.setState({
-      addingBook : true
+      addingBook : true,
+      searchSuccess : false
     });
   };
 
@@ -155,10 +159,28 @@ class App extends React.Component<any, any> {
     {
       method: "GET"
     })
-    await this.setState({
-      searchResult : (await response.json()).items
-    });
-    console.log(this.state.searchResult);
+    const responseJson = (await response.json());
+    if(responseJson.totalItems === 0){
+      alert("No results");
+    }
+    else{
+      await this.setState({
+        searchResult : responseJson.items,
+        searchSuccess : true
+      });
+      console.log(this.state.searchResult);      
+    }
+    // return (
+ 
+    // );
+  };
+
+  public renderSearchResults = () => {
+      while(this.state.searchResult === undefined) {console.log(this.state.searchResult)};
+      {this.state.searchResult.map((data: any) => {
+        return (<Book key = {data.id} bookObj = {data.volumeOf}/>);
+        });
+      }
   };
 
   public addBook = async (e : any) => {
@@ -331,17 +353,9 @@ class App extends React.Component<any, any> {
                         value = {this.state.searchText}
                         onChange={this.updateSearchText}
                       />
-                      
-                      <Popup  trigger = {open => (<Button children = "Search for book" type="submit"/>)} position="right center" modal>
-                        <ul style = {{overflowY : 'scroll', height:"200px"}}>
-                        {this.state.searchResult.map((data: any) =>
-                          <li key = {data.id} style = {{backgroundColor : "#fff"}}>
-                            Title : {data.volumeInfo.title} <br/>
-                            Subtitle : {data.volumeInfo.subtitle} <br/>
-                            Author : {data.volumeInfo.authors} <br/>
-                            Publish date : {data.volumeInfo.publishedDate}
-                          </li>)}                         
-                        </ul>
+                      <Button children = "Search for book" type="submit" onClick={this.searchForBook}/>
+                      <Popup disabled = {!this.state.searchSuccess}  position="right center" modal>
+                        {this.renderSearchResults}         
                       </Popup>
                     </form>
                   }

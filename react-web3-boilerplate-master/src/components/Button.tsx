@@ -132,4 +132,4 @@ Button.defaultProps = {
   left: false
 }
 
-export default Button
+export default Button;
