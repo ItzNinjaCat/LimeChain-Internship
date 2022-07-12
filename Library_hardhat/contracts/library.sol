@@ -6,19 +6,18 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 
 library BookMap{
     struct Book{
-        string name;
         uint8 availableCopies;
         address[] previouslyTaken;
     }
 
     struct Map {
-        uint8[] keys;
-        mapping(uint8 => Book) books;
-        mapping(uint8 => uint8) indexOf;
-        mapping(uint8 => bool) inserted;
+        string[] keys;
+        mapping(string => Book) books;
+        mapping(string => uint8) indexOf;
+        mapping(string => bool) inserted;
     }
 
-    function get(Map storage map, uint8 key) internal view returns (Book storage) {
+    function get(Map storage map, string calldata key) internal view returns (Book storage) {
         return map.books[key];
     }
 
@@ -32,7 +31,7 @@ library BookMap{
 
     function set(
         Map storage map,
-        uint8 key,
+        string calldata key,
         Book memory _book
     ) internal {
         if (map.inserted[key]) {
@@ -68,48 +67,52 @@ library BookMap{
 contract Library is Ownable{
     using BookMap for BookMap.Map;
 
-    event addBookEvent(uint8 id, BookMap.Book book);
-    event borrowBookEvent(address indexed takenBy, uint8 id, BookMap.Book book);
-    event returnBookEvent(address indexed returnedBy, uint8 id, BookMap.Book book);
+    event addBookEvent(string isbn, BookMap.Book book);
+    event borrowBookEvent(address indexed takenBy, string isbn, BookMap.Book book);
+    event returnBookEvent(address indexed returnedBy, string isbn, BookMap.Book book);
 
-    modifier BookExists(uint8 _id) {
-        require(libraryMap.inserted[_id], "This book is not available");
+    modifier BookExists(string calldata _isbn) {
+        require(libraryMap.inserted[_isbn], "This book is not available");
         _;
     }
     BookMap.Map private libraryMap;
 
     uint public immutable takingFee;
+    uint public immutable returnFine;
+    uint public immutable returnBlockLimit;
     
-    mapping(uint8 => mapping(address => bool)) private currentlyTakenBooks;
+    mapping(string => mapping(address => uint)) private currentlyTakenBooks;
 
-    uint8[] private availableIds;
-    mapping(uint8 => uint8) private availableIndexMap;
-    mapping(uint8 => bool) private availableInsertedMap;
+    string[] private availableISBNs;
+    mapping(string => uint8) private availableIndexMap;
+    mapping(string => bool) private availableInsertedMap;
 
-    constructor(uint _fee) {
+    constructor(uint _fee, uint _limit) {
         takingFee = _fee;
+        returnFine = _fee * 2;
+        returnBlockLimit = _limit;
     }
 
     receive() external payable {}
 
-    function addAvailableBook(uint8 _id) private {
-        if(!availableInsertedMap[_id]){
-            availableInsertedMap[_id] = true;
-            availableIndexMap[_id] = uint8(availableIds.length);
-            availableIds.push(_id);
+    function addAvailableBook(string calldata _isbn) private {
+        if(!availableInsertedMap[_isbn]){
+            availableInsertedMap[_isbn] = true;
+            availableIndexMap[_isbn] = uint8(availableISBNs.length);
+            availableISBNs.push(_isbn);
         }
     }
 
-    function removeAvailableBook(uint8 _id) private {
-        uint8 index = availableIndexMap[_id];
-        uint8 lastIndex = uint8(availableIds.length) - 1;
-        uint8 lastId = availableIds[lastIndex];
-        availableIds[index] = availableIds[lastIndex];
-        availableIds.pop();
-        availableIndexMap[lastId] = index;
+    function removeAvailableBook(string calldata _isbn) private {
+        uint8 index = availableIndexMap[_isbn];
+        uint8 lastIndex = uint8(availableISBNs.length) - 1;
+        string memory lastISBN = availableISBNs[lastIndex];
+        availableISBNs[index] = availableISBNs[lastIndex];
+        availableISBNs.pop();
+        availableIndexMap[lastISBN] = index;
 
-        delete availableIndexMap[_id];
-        delete availableInsertedMap[_id];
+        delete availableIndexMap[_isbn];
+        delete availableInsertedMap[_isbn];
     }
 
     function getBalance() external view onlyOwner returns (uint){
@@ -122,20 +125,18 @@ contract Library is Ownable{
         require(success, "send failed");
     }
 
-    function addBook(string calldata _name) external onlyOwner{
-        uint8 id = uint8(uint(keccak256(abi.encodePacked((_name))))) % 100 + 1;
+    function addBook(string calldata _isbn) external onlyOwner{
         BookMap.Book memory book;
-        book.name = _name;
         book.availableCopies = 1;
-        libraryMap.set(id, book);
-        addAvailableBook(id);
-        emit addBookEvent(id, book);
+        libraryMap.set(_isbn, book);
+        addAvailableBook(_isbn);
+        emit addBookEvent(_isbn, book);
     }
 
-    function takeBook(uint8 _id) external payable BookExists(_id){
-        BookMap.Book storage book = libraryMap.get(_id);
+    function takeBook(string calldata _isbn) external payable BookExists(_isbn){
+        BookMap.Book storage book = libraryMap.get(_isbn);
         require(book.availableCopies > 0, "Book is not currently not available");
-        require(!currentlyTakenBooks[_id][msg.sender]  , "User has already borrowed a copy of this book");
+        require(currentlyTakenBooks[_isbn][msg.sender] == 0  , "User has already borrowed a copy of this book");
         require(msg.value >= takingFee, "Not enough ether to borrow book");
 
         if(msg.value > takingFee){
@@ -144,30 +145,42 @@ contract Library is Ownable{
         }
 
         book.previouslyTaken.push(msg.sender);
-        currentlyTakenBooks[_id][msg.sender] = true;
+        currentlyTakenBooks[_isbn][msg.sender] = block.number + 1;
         if(--book.availableCopies == 0){
-            removeAvailableBook(_id);
+            removeAvailableBook(_isbn);
         }
 
-        emit borrowBookEvent(msg.sender, _id, book);
+        emit borrowBookEvent(msg.sender, _isbn, book);
     }
 
-    function returnBook(uint8 _id) external BookExists(_id){
-        require(currentlyTakenBooks[_id][msg.sender], "User has not borrowed this book");
-        BookMap.Book storage book = libraryMap.get(_id);
+    function returnBook(string calldata _isbn) external payable BookExists(_isbn){
+        require(currentlyTakenBooks[_isbn][msg.sender] != 0, "User has not borrowed this book");
+        if(currentlyTakenBooks[_isbn][msg.sender] + returnBlockLimit < block.number){
+            require(msg.value >= returnFine, "Not enough ether to pay penalty");
+            if(msg.value > returnFine){
+                bool success = payable(msg.sender).send(msg.value - returnFine);
+                require(success, "send failed");
+            }
+        }
+        else{
+            if(msg.value > 0){
+                bool success = payable(msg.sender).send(msg.value);
+                require(success, "send failed");
+            }
+        }
+        BookMap.Book storage book = libraryMap.get(_isbn);
         book.availableCopies++;
-        delete currentlyTakenBooks[_id][msg.sender];
-        addAvailableBook(_id);
+        delete currentlyTakenBooks[_isbn][msg.sender];
+        addAvailableBook(_isbn);
 
-        emit returnBookEvent(msg.sender, _id, book);
+        emit returnBookEvent(msg.sender, _isbn, book);
     }
 
-    function listUsersWhoTookBook(uint8 _id) external view BookExists(_id) returns(address[] memory){
-        return libraryMap.get(_id).previouslyTaken;
+    function listUsersWhoTookBook(string calldata _isbn) external view BookExists(_isbn) returns(address[] memory){
+        return libraryMap.get(_isbn).previouslyTaken;
     }
 
-    function getAvailableBooks() external view returns(uint8[] memory){
-        require(availableIds.length > 0, "There are no available books");
-        return availableIds;
+    function getAvailableBooks() external view returns(string[] memory){
+        return availableISBNs;
     }
 }

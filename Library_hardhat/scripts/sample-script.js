@@ -15,7 +15,7 @@ async function main() {
 
   // We get the contract to deploy
   const Library = await hre.ethers.getContractFactory("Library"); 
-  const library = await Library.deploy(150); 
+  const library = await Library.deploy(500, 1000); 
   await library.deployed(); 
   console.log("Library deployed to:", library.address);
 }

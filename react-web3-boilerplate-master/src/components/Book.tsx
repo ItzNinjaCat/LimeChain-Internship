@@ -7,6 +7,7 @@ interface IProps {
   height: string;
   width: string;
   bookObj : any;
+  padding : string;
 }
 
 const Book = (props : IProps) =>(
@@ -14,13 +15,18 @@ const Book = (props : IProps) =>(
     backgroundColor : props.color,
     borderStyle : props.borderStyle,
     height : props.height,
-    width : props.width
+    width : props.width,
+    padding : props.padding,
   }}>
-    {typeof props.bookObj !== undefined &&
-      <img src= {props.bookObj.thumbnail}/> &&
+    {
+      props.bookObj.hasOwnProperty('imageLinks') &&
+      <img src= {props.bookObj.imageLinks.thumbnail}/>
+    }
+    {
+      props.bookObj.hasOwnProperty('title') &&
       <p>Title - {props.bookObj.title}</p>
     }
-    {/* {
+    {
       props.bookObj.hasOwnProperty('subtitle') &&
       <p>Subtitle - {props.bookObj.subtitle}</p>
     }
@@ -37,10 +43,10 @@ const Book = (props : IProps) =>(
       props.bookObj.hasOwnProperty('publishedDate') &&
       <p>Published Date - {props.bookObj.publishedDate}</p>
     }
-    {
+    {/* {
       props.bookObj.hasOwnProperty('description') &&
       <p>Description - {props.bookObj.description}</p>
-    }
+    } */}
     {
       props.bookObj.hasOwnProperty('pageCount') &&
       <p>Page Count - {props.bookObj.pageCount}</p>
@@ -48,36 +54,18 @@ const Book = (props : IProps) =>(
     {
       props.bookObj.hasOwnProperty('categories') &&
       <p>Categories - {props.bookObj.categories.map((categorie : string )=> categorie).join(', ')}</p>
-    } */}
+    }
     {props.children}
   </div>
 )
 
-// const Book: React.FC<Props> = ({ 
-//   borderStyle,
-//     color,
-//     children,
-//     height,
-//     width,
-//   }) => { 
-//   return (
-//     <div 
-//       style={{
-//          backgroundColor: color,
-//          borderStyle,
-//          height,
-//          width
-//       }}
-//     >
-//     {children}
-//     </div>
-//   );
-// }
 
 Book.defaultProps = {
-  borderStyle: "solid",
-  color: "#74eded",
-  height: "200px",
-  width: "1000px"
+  borderStyle: "hidden",
+  color: "#4099ff80",
+  height: "auto",
+  width: "500px",
+  bookObj : null,
+  padding : "20px"
 }
 export default Book;
