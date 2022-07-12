@@ -310,7 +310,10 @@ class App extends React.Component<any, any> {
     console.log(await this.state.library.getBlockNumber());
     await this.setState({ fetching: true });
     const { libraryContract } = this.state;
-    const transaction = await libraryContract.takeBook(ISBN, {value: ethers.utils.parseEther("0.00000000000000050")});
+    const transaction = await libraryContract.takeBook(ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(["string"], [ISBN])),
+      {value: ethers.utils.parseEther("0.00000000000000050")}
+    );
   
     await this.setState({ transactionHash: transaction.hash });
     
