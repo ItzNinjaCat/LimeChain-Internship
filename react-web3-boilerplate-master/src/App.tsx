@@ -32,6 +32,10 @@ const SContent = styled(Wrapper)`
   width: 100%;
   height: 100%;
   padding: 0 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
 `;
 
 const SContainer = styled.div`
@@ -45,7 +49,11 @@ const SContainer = styled.div`
 `;
 
 const SLanding = styled(Column)`
-  height: 100px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
 `;
 
 // @ts-ignore
@@ -144,13 +152,38 @@ class App extends React.Component<any, any> {
     });
 
     await this.subscribeToProviderEvents(this.provider);
-    console.log((await libraryContract.getBook(
-      ethers.utils.keccak256(
-      ethers.utils.defaultAbiCoder.encode(["string"], ["9781408832349"])))));
     await this.getAvailableBooks();
   };
 
+  public home = async () => {
+    await this.setState({
+      addingBook : false,
+      searchSuccess : false,
+    });
+  };
+
   public addBookButton = async () => {
+    await this.setState({
+      addingBook : true,
+      searchSuccess : false
+    });
+  };
+
+  public takingArchive = async () => {
+    await this.setState({
+      addingBook : true,
+      searchSuccess : false
+    });
+  };
+
+  public currentlyTaken = async () => {
+    await this.setState({
+      addingBook : false,
+      searchSuccess : false,
+    });
+  };
+
+  public withdraw = async () => {
     await this.setState({
       addingBook : true,
       searchSuccess : false
@@ -188,7 +221,7 @@ class App extends React.Component<any, any> {
           responseJson.items.splice(index, 1);
         }
       });
-      console.log(responseJson.items);
+      // console.log(responseJson.items);
       if(responseJson.items.length > 0){
         this.setState({
           searchResult : responseJson.items,
@@ -207,7 +240,7 @@ class App extends React.Component<any, any> {
 
   public addBook = async (ISBN : any) => {
     await this.setState({ fetching: true });
-    console.log(ISBN);
+    // console.log(ISBN);
     const { libraryContract } = this.state;
     const transaction = await libraryContract.addBook(ISBN);
   
@@ -215,7 +248,7 @@ class App extends React.Component<any, any> {
     
     const transactionReceipt = await transaction.wait();
     await libraryContract.on("addBookEvent", (id : any, book : any) => {
-      console.log(book);
+      // console.log(book);
     });
     if (transactionReceipt.status !== 1) { 
       alert('Failed to add book');
@@ -314,7 +347,7 @@ class App extends React.Component<any, any> {
 
 
   public takeBook = async (ISBN : string) =>{
-    console.log(await this.state.library.getBlockNumber());
+    // console.log(await this.state.library.getBlockNumber());
     await this.setState({ fetching: true });
     const { libraryContract } = this.state;
     const transaction = await libraryContract.takeBook(ethers.utils.keccak256(
@@ -326,12 +359,12 @@ class App extends React.Component<any, any> {
     
     const transactionReceipt = await transaction.wait();
     await libraryContract.on("borrowBookEvent", (id : any, book : any) => {
-      console.log(id, book);
+      // console.log(id, book);
     });
     if (transactionReceipt.status !== 1) { 
       alert('Failed to take book');
     }
-    console.log(await this.state.library.getBlockNumber());
+    // console.log(await this.state.library.getBlockNumber());
     await this.setState({ fetching: false });
     await this.getAvailableBooks();
   };
@@ -348,12 +381,12 @@ class App extends React.Component<any, any> {
     
     const transactionReceipt = await transaction.wait();
     await libraryContract.on("returnBookEvent", (id : any, book : any) => {
-      console.log(id, book);
+      // console.log(id, book);
     });
     if (transactionReceipt.status !== 1) { 
       alert('Failed to return book');
     }
-    console.log(await this.state.library.getBlockNumber());
+    // console.log(await this.state.library.getBlockNumber());
     await this.setState({ fetching: false });
     await this.getAvailableBooks();
   };
@@ -426,17 +459,33 @@ class App extends React.Component<any, any> {
 
   };
 
-  public renderSearchResults = () => {
-    return <br/> &&
-      (
-        this.state.searchResult.map
-        (
-          (data: any) =>
-          <Book key = {data.id} bookObj = {data.volumeInfo}>
-            <Button children = "Add Book" onClick = {() => this.addBook(data.volumeInfo.industryIdentifiers[0].identifier)}/>
-          </Book>
+  public  renderAvailableBooks = () => {
+    return (
+      <div>
+      {
+        this.state.availableBooks.map((data: any) =>
+        <Book key = {data.id} bookObj = {data.volumeInfo}>
+            <Button children = "Take book" onClick = {() => this.takeBook(data.volumeInfo.industryIdentifiers[0].identifier)}/>
+            <Button children = "Return book" onClick = {() => this.returnBook(data.volumeInfo.industryIdentifiers[0].identifier)}/>
+        </Book>
         )
-      )
+      }
+      </div>
+    )
+  };
+
+  public renderSearchResults = () => {
+    return (
+      <div>
+      {
+        this.state.searchResult.map((data: any) =>
+        <Book key = {data.id} bookObj = {data.volumeInfo}>
+            <Button children = "Add Book" onClick = {() => this.addBook(data.volumeInfo.industryIdentifiers[0].identifier)}/>
+        </Book>
+        )
+      }
+      </div>
+    )
   };
 
   public render = () => {
@@ -454,9 +503,23 @@ class App extends React.Component<any, any> {
             address={address}
             chainId={chainId}
             killSession={this.resetApp}
-          />
+            >
+            <ul style = {{
+              backgroundColor: "#509cfc",
+              textAlign: "center",
+              borderRadius : "8px"
+
+            }}>
+              
+              {this.state.connected && <Button children = "Home" onClick={this.home} />}
+              {this.state.connected && <Button children = "Add book" onClick={this.addBookButton} />}
+              {this.state.connected && <Button children = "Taken books" onClick={this.currentlyTaken} />}
+              {this.state.connected && <Button children = "Book taking archive" onClick={this.takingArchive} />}
+              {this.state.connected && <Button children = "Withdraw" onClick={this.withdraw} />}
+            </ul>
+            </Header>
           <div>
-            {this.state.connected && !this.state.addingBook && <Button children = "Add book" onClick={this.addBookButton} />}
+            
             {/* {this.state.connected && !this.state.addingBook && <Button children = "List available books" onClick={this.getAvailableBooks}/>} */}
           </div>                            
           <SContent>
@@ -468,9 +531,8 @@ class App extends React.Component<any, any> {
               </Column>
             ) : (
               <SLanding center>
-                {!this.state.connected && <ConnectButton onClick={this.onConnect} />}
-                {/* {this.state.connected && !this.state.addingBook && <Button children = "Borrow book" onClick={this.takeBook} />} */}
-                {this.state.connected && this.state.addingBook &&
+
+                  {this.state.connected && this.state.addingBook &&
                   
                   <form onSubmit={this.addBookCheck}>
                     <input
@@ -495,28 +557,20 @@ class App extends React.Component<any, any> {
                   </form>       
                 }
 
-              </SLanding>
-            )}
+                {!this.state.connected && <ConnectButton onClick={this.onConnect} />}
+            {!this.state.addingBook && this.state.connected && this.state.availableBooks.length > 0 &&  <h2> Available books </h2> }
             {
-                !this.state.addingBook && this.state.connected && this.state.availableBooks.length > 0 &&
-                    this.state.availableBooks.map((data: any) =>
-                    <Book key = {data.id} bookObj = {data.volumeInfo}>
-                      {
-                        <Button children = "Take book" onClick = {() => this.takeBook(data.volumeInfo.industryIdentifiers[0].identifier)}/>
-                      }
-                      {
-                        <Button children = "Return book" onClick = {() => this.returnBook(data.volumeInfo.industryIdentifiers[0].identifier)}/>
-                      }
-                    </Book>
-                  )
+                !this.state.addingBook && 
+                this.state.connected && 
+                this.state.availableBooks.length > 0 &&
+                this.renderAvailableBooks()
             }
-            <div style = {{  display: "flex", justifyContent: "center", alignItems: "center"}}>
             { this.state.searchSuccess && <h2> Search Results </h2> }
             { this.state.searchSuccess && <Button children = "Close search" onClick = {this.clearSearch}/> }
-            </div>
 
             { this.state.searchSuccess && this.renderSearchResults() }
-
+              </SLanding>
+            )}
           </SContent>
         </Column>
       </SLayout>

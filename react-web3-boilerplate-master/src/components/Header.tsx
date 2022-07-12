@@ -76,6 +76,7 @@ interface IHeaderProps {
   connected: boolean
   address: string
   chainId: number
+  children?: React.ReactNode;
 }
 
 const Header = (props: IHeaderProps) => {
@@ -89,6 +90,7 @@ const Header = (props: IHeaderProps) => {
           <p>{chainData.name}</p>
         </SActiveChain>
       ) : 'Not Connected'}
+      {props.children}
       {address && (
         <SActiveAccount>
           <SBlockie address={address} />
