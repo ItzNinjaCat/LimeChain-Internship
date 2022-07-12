@@ -26,9 +26,9 @@ library BookMap{
         return map.keys[index];
     }
 
-    // function size(Map storage map) internal view returns (uint8) {
-    //     return uint8(map.keys.length);
-    // }
+    function size(Map storage map) internal view returns (uint8) {
+        return uint8(map.keys.length);
+    }
 
     function set(
         Map storage map,
@@ -182,10 +182,16 @@ contract Library is Ownable{
     }
 
     function getAvailableBook(uint8 _index) external view returns(BookMap.Book memory){
+        require(availableIds.length > _index && availableIds.length > 0, "Index out ot range");
         return libraryMap.get(availableIds[_index]);
     }
 
-    function getBook(uint8 _index) external view returns (BookMap.Book memory){
+    function getBookByIndex(uint8 _index) external view returns (BookMap.Book memory){
+        require(libraryMap.size() > _index && libraryMap.size() > 0, "Index out ot range");
         return libraryMap.get(libraryMap.getKeyAtIndex(_index));
+    }
+
+    function getBook(bytes32 _id) external view BookExists(_id) returns (BookMap.Book memory){
+        return libraryMap.get(_id);
     }
 }

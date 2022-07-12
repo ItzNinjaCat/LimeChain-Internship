@@ -45,7 +45,7 @@ const SContainer = styled.div`
 `;
 
 const SLanding = styled(Column)`
-  height: 600px;
+  height: 100px;
 `;
 
 // @ts-ignore
@@ -144,7 +144,9 @@ class App extends React.Component<any, any> {
     });
 
     await this.subscribeToProviderEvents(this.provider);
-
+    console.log((await libraryContract.getBook(
+      ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(["string"], ["9781408832349"])))));
     await this.getAvailableBooks();
   };
 
@@ -222,6 +224,7 @@ class App extends React.Component<any, any> {
       addingBook : false,
       fetching: false
     });
+    await this.getAvailableBooks();
   }
 
   public addBookCheck = async (e : any) => {
@@ -285,7 +288,11 @@ class App extends React.Component<any, any> {
   public getAvailableBooks = async () => {
     const { libraryContract } = this.state;
     await this.setState({ fetching: true });
-    const avaialbleISBN = await libraryContract.getAvailableBooks();
+    const availableLen = await libraryContract.getAvailableBooksLength();
+    const avaialbleISBN = [];
+    for(let i = 0; i < availableLen; i++){
+      avaialbleISBN.push((await libraryContract.getAvailableBook(i)).isbn);
+    }
     const availableBooksTmp : any = [];
     await Promise.all(avaialbleISBN.map( async (data : any) => {
       const response = await fetch(constants.GOOLE_BOOKS_API +
@@ -312,13 +319,13 @@ class App extends React.Component<any, any> {
     const { libraryContract } = this.state;
     const transaction = await libraryContract.takeBook(ethers.utils.keccak256(
       ethers.utils.defaultAbiCoder.encode(["string"], [ISBN])),
-      {value: ethers.utils.parseEther("0.00000000000000050")}
+      {value: ethers.utils.parseEther("0.00000000000001")}
     );
   
     await this.setState({ transactionHash: transaction.hash });
     
     const transactionReceipt = await transaction.wait();
-    await libraryContract.on("addBookEvent", (id : any, book : any) => {
+    await libraryContract.on("borrowBookEvent", (id : any, book : any) => {
       console.log(id, book);
     });
     if (transactionReceipt.status !== 1) { 
@@ -329,8 +336,26 @@ class App extends React.Component<any, any> {
     await this.getAvailableBooks();
   };
 
-  public returnBook = async () =>{
-    console.log("here");
+  public returnBook = async (ISBN : string) =>{
+    await this.setState({ fetching: true });
+    const { libraryContract } = this.state;
+    const transaction = await libraryContract.returnBook(ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(["string"], [ISBN])),
+      {value: ethers.utils.parseEther("0.00000000000002")}
+    );
+  
+    await this.setState({ transactionHash: transaction.hash });
+    
+    const transactionReceipt = await transaction.wait();
+    await libraryContract.on("returnBookEvent", (id : any, book : any) => {
+      console.log(id, book);
+    });
+    if (transactionReceipt.status !== 1) { 
+      alert('Failed to return book');
+    }
+    console.log(await this.state.library.getBlockNumber());
+    await this.setState({ fetching: false });
+    await this.getAvailableBooks();
   };
   public subscribeToProviderEvents = async (provider:any) => {
     if (!provider.on) {
@@ -401,6 +426,19 @@ class App extends React.Component<any, any> {
 
   };
 
+  public renderSearchResults = () => {
+    return <br/> &&
+      (
+        this.state.searchResult.map
+        (
+          (data: any) =>
+          <Book key = {data.id} bookObj = {data.volumeInfo}>
+            <Button children = "Add Book" onClick = {() => this.addBook(data.volumeInfo.industryIdentifiers[0].identifier)}/>
+          </Book>
+        )
+      )
+  };
+
   public render = () => {
     const {
       address,
@@ -429,65 +467,56 @@ class App extends React.Component<any, any> {
                 </SContainer>
               </Column>
             ) : (
-                <SLanding center>
-                  {!this.state.connected && <ConnectButton onClick={this.onConnect} />}
-                  {/* {this.state.connected && !this.state.addingBook && <Button children = "Borrow book" onClick={this.takeBook} />} */}
-                  {this.state.connected && this.state.addingBook &&
-                    
-                    <form onSubmit={this.addBookCheck}>
-                      <input
-                        type="text"
-                        placeholder="Book ISBN"
-                        value = {this.state.addingBookISBN}
-                        maxLength = {13}
-                        onChange={this.updateISBN}
-                      />
-                      <Button children = "Add book" type="submit" disabled={!this.state.validISBN}/>
-                    </form>
-                  }
-                  {this.state.connected && this.state.addingBook &&
-                    <form onSubmit={this.searchForBook} >
-                      <input
-                        type="text"
-                        placeholder="Book title/author/subtitle"
-                        value = {this.state.searchText}
-                        onChange={this.updateSearchText}
-                      />
-                      <Button type = "submit" children = "Search for book" onClick = {this.searchForBook} disabled = {!this.state.validSearch}/>
-                      { this.state.searchSuccess &&
-                      <div style = {{overflowY : "scroll", height: "500px", borderRadius : "20px"}}>
-                        <h2> Search Results </h2>
-                        <Button children = "Close search" onClick = {this.clearSearch}/>
-                          {
-                            this.state.searchResult.map((data: any) =>
-                              <Book key = {data.id} bookObj = {data.volumeInfo}>
-                                <Button children = "Add Book" onClick = {() => this.addBook(data.volumeInfo.industryIdentifiers[0].identifier)}/>
-                              </Book>
-                              )
-                          }
-                      </div>
-                      }
-                    </form>       
-                  }
-                   {
-                    !this.state.addingBook && this.state.connected && 
-                    <div style = {{overflowY : "scroll", height: "500px", borderRadius : "20px"}}>
+              <SLanding center>
+                {!this.state.connected && <ConnectButton onClick={this.onConnect} />}
+                {/* {this.state.connected && !this.state.addingBook && <Button children = "Borrow book" onClick={this.takeBook} />} */}
+                {this.state.connected && this.state.addingBook &&
+                  
+                  <form onSubmit={this.addBookCheck}>
+                    <input
+                      type="text"
+                      placeholder="Book ISBN"
+                      value = {this.state.addingBookISBN}
+                      maxLength = {13}
+                      onChange={this.updateISBN}
+                    />
+                    <Button children = "Add book" type="submit" disabled={!this.state.validISBN}/>
+                  </form>
+                }
+                {this.state.connected && this.state.addingBook &&
+                  <form onSubmit={this.searchForBook} >
+                    <input
+                      type="text"
+                      placeholder="Book title/author/subtitle"
+                      value = {this.state.searchText}
+                      onChange={this.updateSearchText}
+                    />
+                    <Button type = "submit" children = "Search for book" onClick = {this.searchForBook} disabled = {!this.state.validSearch}/>
+                  </form>       
+                }
+
+              </SLanding>
+            )}
+            {
+                !this.state.addingBook && this.state.connected && this.state.availableBooks.length > 0 &&
+                    this.state.availableBooks.map((data: any) =>
+                    <Book key = {data.id} bookObj = {data.volumeInfo}>
                       {
-                        this.state.availableBooks.map((data: any) =>
-                        <Book key = {data.id} bookObj = {data.volumeInfo}>
-                          {
-                            <Button children = "Take book" onClick = {() => this.takeBook(data.volumeInfo.industryIdentifiers[0].identifier)}/>
-                          }
-                          {
-                            <Button children = "Return book" onClick = {this.returnBook}/>
-                          }
-                        </Book>
-                      )
-                      }    
-                    </div>
-                  }
-                </SLanding>
-              )}
+                        <Button children = "Take book" onClick = {() => this.takeBook(data.volumeInfo.industryIdentifiers[0].identifier)}/>
+                      }
+                      {
+                        <Button children = "Return book" onClick = {() => this.returnBook(data.volumeInfo.industryIdentifiers[0].identifier)}/>
+                      }
+                    </Book>
+                  )
+            }
+            <div style = {{  display: "flex", justifyContent: "center", alignItems: "center"}}>
+            { this.state.searchSuccess && <h2> Search Results </h2> }
+            { this.state.searchSuccess && <Button children = "Close search" onClick = {this.clearSearch}/> }
+            </div>
+
+            { this.state.searchSuccess && this.renderSearchResults() }
+
           </SContent>
         </Column>
       </SLayout>

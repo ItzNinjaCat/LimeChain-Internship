@@ -262,4 +262,51 @@ describe("Library contract", function () {
         await expect(library.connect(addr1).getBalance()).to.be.revertedWith("Ownable: caller is not the owner");
       });
     });
+
+    describe("getAvaialableBook tests", function () {
+      it("Should return the book standing at a given index", async function () {
+        await library.addBook(foo);
+        expect(await library.getAvailableBook(0)).to.deep.equal([foo, 1, []]);
+      });
+      it("Should throw error for index out of range", async function () {
+        await expect(library.getAvailableBook(0)).to.be.revertedWith("Index out ot range");
+        await library.addBook(foo);
+        await expect(library.getAvailableBook(1)).to.be.revertedWith("Index out ot range");
+      });
+    });
+
+    describe("getAvaialableBookLength tests", function () {
+      it("Should return the amount of available books", async function () {
+        expect(await library.getAvailableBooksLength()).to.equal(0);
+        await library.addBook(foo);
+        expect(await library.getAvailableBooksLength()).to.equal(1);
+        await library.addBook(bar);
+        expect(await library.getAvailableBooksLength()).to.equal(2);
+      });
+    });
+
+    describe("getBookByIndex tests", function () {
+      it("Should return the book standing at a given index", async function () {
+        await library.addBook(foo);
+        expect(await library.getBookByIndex(0)).to.deep.equal([foo, 1, []]);
+      });
+      it("Should throw error for index out of range", async function () {
+        await expect(library.getBookByIndex(0)).to.be.revertedWith("Index out ot range");
+        await library.addBook(foo);
+        await expect(library.getBookByIndex(1)).to.be.revertedWith("Index out ot range");
+      });
+    });
+    describe("getBookByIndex tests", function () {
+      it("Should return book based on id", async function () {
+        await library.addBook(foo);
+        expect(await library.getBook(foo_bytes)).to.deep.equal([foo, 1, []]);
+      });
+      it("Should throw error for nonexistent book", async function () {
+        await expect(library.getBook("0xb93d94462a1aca054f8944d65bafc36d7b7f2256072a7eadbf1d4a240f4adef8"))
+        .to.be.revertedWith("This book is not available");
+        await library.addBook(foo);
+        await expect(library.getBook("0xb93d94462a1aca054f8944d65bafc36d7b7f2256072a7eadbf1d4a240f4adef9"))
+        .to.be.revertedWith("This book is not available");
+      });
+    });
 });
