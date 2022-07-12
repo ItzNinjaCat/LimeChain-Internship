@@ -165,11 +165,9 @@ contract Library is Ownable{
                 require(success, "send failed");
             }
         }
-        else{
-            if(msg.value > 0){
-                bool success = payable(msg.sender).send(msg.value);
-                require(success, "send failed");
-            }
+        else if(msg.value > 0){
+            bool success = payable(msg.sender).send(msg.value);
+            require(success, "send failed");
         }
         BookMap.Book storage book = libraryMap.get(_id);
         book.availableCopies++;
