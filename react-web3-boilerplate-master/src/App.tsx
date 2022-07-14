@@ -20,6 +20,8 @@ import { ethers } from "ethers";
 
 import * as constants from './constants';
 import { getContract } from './helpers/ethers';
+import { parseEther , formatEther} from 'ethers/lib/utils';
+import { LIBRARY_ADDRESS } from './constants';
 
 const SLayout = styled.div`
   position: relative;
@@ -73,16 +75,29 @@ interface IAppState {
   pendingRequest: boolean;
   result: any | null;
   libraryContract: any | null;
+  tokenContract : any | null;
   info: any | null;
   searchText : string;
   searchResult : any | null;
-  searchSuccess : boolean;
   validSearch : boolean;
-  addingBook: boolean;
-  addingBookISBN : string;
+  ISBN : string;
   availableBooks : any;
-  availableState : boolean;
   validISBN : boolean;
+  takenBooks : any;
+  depositAmount : number;
+  userBalance : number;
+  searchSuccess : boolean;
+  home : boolean;
+  depositPage : boolean;
+  withdrawPage : boolean;
+  takingArchivePage : boolean;
+  currentlyTakenPage : boolean;
+  addBookPage: boolean;
+  limit : number;
+  currentBlock : number;
+  libraryBalance : number;
+  archiveResults : any | null;
+  archiveSuccess : boolean;
 }
 
 const INITIAL_STATE: IAppState = {
@@ -94,16 +109,29 @@ const INITIAL_STATE: IAppState = {
   pendingRequest: false,
   result: null,
   libraryContract: null,
+  tokenContract: null,
   info: null,
   searchText : "",
   searchResult : [],
   searchSuccess : false,
   validSearch : false,
-  addingBookISBN : "",
+  ISBN : "",
   validISBN : false,
-  addingBook : false,
+  addBookPage : false,
   availableBooks : [],
-  availableState : false
+  takenBooks : [],
+  takingArchivePage : false,
+  currentlyTakenPage : false,
+  withdrawPage : false,
+  depositAmount : 0,
+  depositPage : false,
+  userBalance : 0,
+  home : true,
+  limit : 0,
+  currentBlock : 0,
+  libraryBalance : 0,
+  archiveResults : null,
+  archiveSuccess : false
 };
 
 class App extends React.Component<any, any> {
@@ -142,52 +170,299 @@ class App extends React.Component<any, any> {
     const address = this.provider.selectedAddress ? this.provider.selectedAddress : this.provider.accounts[0];
 
     const libraryContract = getContract(constants.LIBRARY_ADDRESS, constants.LIBRARY.abi, library, address);
-
-    await this.setState({
+    const tokenContract = getContract(constants.LIBRARY_TOKEN_ADDRESS, constants.LIBRARY_TOKEN.abi, library, address);
+    const bal = formatEther(await libraryContract.getBalance());
+    this.setState({
       library,
       chainId: network.chainId,
       address,
       connected: true,
-      libraryContract
+      libraryContract,
+      tokenContract,
+      userBalance : bal
     });
-
     await this.subscribeToProviderEvents(this.provider);
     await this.getAvailableBooks();
   };
 
-  public home = async () => {
-    await this.setState({
-      addingBook : false,
-      searchSuccess : false,
+
+
+  
+  public home = () => {
+    this.clearSearch();
+    this.clearArchive();
+    this.setState({
+      home : true,
+      depositPage : false,
+      withdrawPage : false,
+      takingArchivePage : false,
+      currentlyTakenPage : false,
+      addBookPage: false,
+      fetching : false
     });
   };
 
-  public addBookButton = async () => {
-    await this.setState({
-      addingBook : true,
-      searchSuccess : false
+  public addBookButton = () => {
+    this.clearSearch();
+    this.clearArchive();
+    this.setState({
+      home : false,
+      depositPage : false,
+      withdrawPage : false,
+      takingArchivePage : false,
+      currentlyTakenPage : false,
+      addBookPage: true,
     });
   };
 
-  public takingArchive = async () => {
-    await this.setState({
-      addingBook : true,
-      searchSuccess : false
+  public clearArchive = () => {
+    this.setState({
+      archiveResults : null,
+      archiveSuccess : false,
+      ISBN : "",
+      validISBN : false
+    })
+  };
+
+  public renderarchiveResults = () => {
+    return (
+      <div>
+        <div style = {{margin : "10px"}}>
+          <h2> Search Results </h2>
+          <Button children = "Reset search" onClick = {this.clearArchive}/> 
+        </div>
+          <Book bookObj = {this.state.archiveResults.book}>
+            <p
+              style ={{
+                fontSize: "24px",
+                fontFamily: "monospace",
+                fontWeight: "bold"
+              }}>
+                Taken by:
+            </p>
+            {
+              this.state.archiveResults.takenBy.map((data : any, index : number) =>
+                <li key = {index}>{data}</li> 
+              )
+            }
+          </Book>
+      </div>
+    )
+  }
+
+  public getarchiveResults = async () => {
+    this.setState({ fetching : true })
+    try{
+      const { libraryContract, ISBN } = this.state;
+      const book = await libraryContract.getBook(
+        ethers.utils.solidityKeccak256(
+          ["bytes"],
+          [
+            ethers.utils.defaultAbiCoder.encode
+            (
+              ["string"], [ISBN]
+            )
+          ]
+        )
+      );
+      if(book.previouslyTaken.length === 0){
+        alert("This book has never been taken");
+        this.home();
+        return;
+      }
+      const response = await fetch(constants.GOOLE_BOOKS_API +
+        "isbn:" +
+        ISBN +
+        '&maxResults=40',
+      {
+        method: "GET"
+      })
+      const bookObj = (await response.json()).items;
+      const taken = Array.from(new Set(book.previouslyTaken))
+      console.log(taken)
+      if(bookObj.length > 0){
+        this.setState({
+          archiveResults : ({book : bookObj[0].volumeInfo, takenBy : taken}),
+          archiveSuccess : true,
+          fetching : false,
+          ISBN : "",
+          validISBN : false,
+        })
+        console.log(this.state.archiveResults)
+      }
+    }
+    catch(err){
+      alert(err.reason);
+      this.home();
+    }
+  };
+
+  public rendertakingArchive = () => {
+    return (
+      <div>
+        <form onSubmit={this.getarchiveResults}>
+          <input
+            type="text"
+            placeholder="Book ISBN"
+            value = {this.state.ISBN}
+            maxLength = {13}
+            onChange={this.updateISBN}
+          />
+          <Button children = "Search archive" type="submit" disabled={!this.state.validISBN}/>
+        </form>
+      </div>
+    )
+  };
+
+  public takingArchiveButton = () => {
+    this.clearSearch();
+    this.clearArchive();
+    this.setState({
+      home : false,
+      depositPage : false,
+      withdrawPage : false,
+      takingArchivePage : true,
+      currentlyTakenPage : false,
+      addBookPage: false,
     });
   };
 
-  public currentlyTaken = async () => {
-    await this.setState({
-      addingBook : false,
-      searchSuccess : false,
+  public withdrawButton = async () => {
+    try {
+      this.setState({ fetching : true })
+      this.clearSearch();
+      this.clearArchive();
+      this.setState({
+        home : false,
+        depositPage : false,
+        withdrawPage : true,
+        takingArchivePage : false,
+        currentlyTakenPage : false,
+        addBookPage: false,
+        libraryBalance : formatEther(await this.state.libraryContract.getLibraryBalance())
+      });
+      this.setState({ fetching : false })
+    }
+    catch(error){
+      alert(error.reason)
+      this.home();
+    }
+
+  };
+
+  public depositButton = () => {
+    this.clearSearch();
+    this.clearArchive();
+    this.setState({
+      home : false,
+      depositPage : true,
+      withdrawPage : false,
+      takingArchivePage : false,
+      currentlyTakenPage : false,
+      addBookPage: false,
     });
+  }
+  public calculateTime = (limit : number, present : number, start : number) => {
+    return limit - (present - start);
+  };
+
+  public currentlyTakenButton = async () => {
+    this.setState({ fetching : true})
+    const { library, libraryContract } = this.state;
+
+
+    let books : any = localStorage.getItem('takenBooks');
+    if(books === null){
+      books = [];
+    }
+    else {
+      books = JSON.parse(books.toString())
+    }
+    for(let i = 0; i < books.length; i++){
+      if(books[i].takenBy !== this.state.address){
+        books.splice(i, 1);
+      }
+    }
+    if(books.length === 0){
+      alert("You currently have not taken any books");
+      this.home();
+      return;
+    }
+    this.clearSearch();
+    this.clearArchive();
+    this.setState({
+      home : false,
+      depositPage : false,
+      withdrawPage : false,
+      takingArchivePage : false,
+      currentlyTakenPage : true,
+      addBookPage: false,
+      limit : (await libraryContract.returnBlockLimit()).toNumber(),
+      currentBlock : (await library.getBlockNumber()),
+      takenBooks : books
+    });
+    this.setState({ fetching : false});
+  };
+
+  public renderWithdraw = () => {
+    return (
+      <div>
+        <p
+        style ={{
+          fontSize: "24px",
+          fontFamily: "monospace",
+          fontWeight: "bold"
+        }}
+        >Fees available for withdrawing :  {this.state.libraryBalance} LIB (ETH:LIB - 1:1)</p>
+        {this.state.connected && <Button children = "Withdraw" onClick={this.withdraw} />}
+      </div>
+    )
+  };
+  
+  public  renderCurrentlyTaken = () => {
+    const { limit, currentBlock, takenBooks } = this.state;
+    return (
+      <div>
+        {
+          takenBooks.map((data: any) =>
+
+          <Book
+            key = {data.book[0].id} bookObj = {data.book[0].volumeInfo}
+            color = {
+              this.calculateTime(limit, currentBlock, data.startDate) > 0 ? 
+              "#4099ff80" : "red"
+            }
+          >
+            <p > Blocks left before fine - {
+              this.calculateTime(limit, currentBlock, data.startDate) > 0 ? 
+              this.calculateTime(limit, currentBlock, data.startDate) : 0
+            }</p>
+            <Button children = "Return book" onClick = {() => this.returnBook(data.book[0].volumeInfo.industryIdentifiers[0].identifier)}/>
+          </Book>
+          )  
+        }
+      </div>
+    )
   };
 
   public withdraw = async () => {
-    await this.setState({
-      addingBook : true,
-      searchSuccess : false
-    });
+    this.setState({ fetching: true });
+    const { libraryContract } = this.state;
+    try{
+      const transaction = await libraryContract.withdraw();
+    
+      this.setState({ transactionHash: transaction.hash });
+      
+      const transactionReceipt = await transaction.wait();
+      if (transactionReceipt.status !== 1) { 
+        alert('Failed to withdraw');
+      }
+    }
+    catch(error){
+      alert(error.reason)
+    }
+    this.setState({ fetching: false });
+    this.home();
   };
 
   public searchForBook = async (e : any) => {
@@ -242,44 +517,47 @@ class App extends React.Component<any, any> {
     await this.setState({ fetching: true });
     // console.log(ISBN);
     const { libraryContract } = this.state;
-    const transaction = await libraryContract.addBook(ISBN);
-  
-    await this.setState({ transactionHash: transaction.hash });
-    
-    const transactionReceipt = await transaction.wait();
-    await libraryContract.on("addBookEvent", (id : any, book : any) => {
-      // console.log(book);
-    });
-    if (transactionReceipt.status !== 1) { 
-      alert('Failed to add book');
+    try{
+      const transaction = await libraryContract.addBook(ISBN);
+      this.setState({ transactionHash: transaction.hash });
+      
+      const transactionReceipt = await transaction.wait();
+      await libraryContract.on("addBookEvent", (id : any, book : any) => {
+        console.log(book);
+      });
+      if (transactionReceipt.status !== 1) { 
+        alert('Failed to add book');
+      }
+      this.setState({ fetching: false });
+      this.clearSearch();
+      await this.getAvailableBooks();
     }
-    this.setState({
-      addingBook : false,
-      fetching: false
-    });
-    await this.getAvailableBooks();
+    catch(error){
+      alert(error.reason);
+    }
+    this.home();
   }
 
   public addBookCheck = async (e : any) => {
     e.preventDefault();
-		const { addingBookISBN } = this.state;
+		const { ISBN } = this.state;
 		await this.setState({ fetching: true });
     const response = await fetch(constants.GOOLE_BOOKS_API +
       "isbn:" +
-      addingBookISBN +
+      ISBN +
       '&maxResults=40',
     {
       method: "GET"
     })
-    await this.setState({ fetching: false });
+    this.setState({ fetching: false });
     if((await response.json()).totalItems === 0){
       alert("Incorrect ISBN");
     }
     else{
-      this.addBook(addingBookISBN);
+      this.addBook(ISBN);
     }
     this.setState({
-      addingBookISBN : "",
+      ISBN : "",
       validISBN : false
     });
   };
@@ -288,13 +566,13 @@ class App extends React.Component<any, any> {
     if(e.target.value.length === 10 || e.target.value.length === 13){
       this.setState({
         validISBN : true,
-        addingBookISBN : e.target.value
+        ISBN : e.target.value
       });
     }
     else{
       this.setState({
         validISBN : false,
-        addingBookISBN : e.target.value
+        ISBN : e.target.value
       });
     }
   };
@@ -310,17 +588,22 @@ class App extends React.Component<any, any> {
     });
   };
 
-  public clearSearch = async () => {
-    await this.setState({
+  public updateDeposit = (e: React.ChangeEvent<HTMLInputElement>) => {
+      this.setState({
+        depositAmount : e.target.value
+      });
+  }
+  public clearSearch = () => {
+    this.setState({
       searchSuccess : false,
       searchResults : [],
       searchText : ""
-  })
-  }
+    })
+  };
 
   public getAvailableBooks = async () => {
     const { libraryContract } = this.state;
-    await this.setState({ fetching: true });
+    this.setState({ fetching: true });
     const availableLen = await libraryContract.getAvailableBooksLength();
     const avaialbleISBN = [];
     for(let i = 0; i < availableLen; i++){
@@ -339,56 +622,97 @@ class App extends React.Component<any, any> {
     }))
 
     this.setState({
-      availableState : true,
       availableBooks : Object.assign([], availableBooksTmp)
     });
-    await this.setState({ fetching: false });
+    this.setState({ fetching: false });
   };
 
 
-  public takeBook = async (ISBN : string) =>{
-    // console.log(await this.state.library.getBlockNumber());
-    await this.setState({ fetching: true });
-    const { libraryContract } = this.state;
-    const transaction = await libraryContract.takeBook(ethers.utils.keccak256(
-      ethers.utils.defaultAbiCoder.encode(["string"], [ISBN])),
-      {value: ethers.utils.parseEther("0.00000000000001")}
-    );
-  
-    await this.setState({ transactionHash: transaction.hash });
-    
-    const transactionReceipt = await transaction.wait();
-    await libraryContract.on("borrowBookEvent", (id : any, book : any) => {
-      // console.log(id, book);
-    });
-    if (transactionReceipt.status !== 1) { 
-      alert('Failed to take book');
+  public borrowBook = async (ISBN : string) =>{
+    this.setState({ fetching: true });
+    const { library, libraryContract } = this.state;
+    try{
+      const amount = formatEther((await libraryContract.takingFee()).toBigInt() + (await libraryContract.returnFine()).toBigInt());
+      const signature = await this.onAttemptToApprove(amount);
+      const transaction = await libraryContract.borrowBook(ethers.utils.keccak256(
+        ethers.utils.defaultAbiCoder.encode(["string"], [ISBN])),
+        parseEther(amount),
+        signature.deadline,
+        signature.v,
+        signature.r,
+        signature.s
+        );
+      this.setState({ transactionHash: transaction.hash });
+      
+      const transactionReceipt = await transaction.wait();
+      await libraryContract.on("borrowBookEvent", (id : any, book : any) => {
+        console.log(id, book);
+      });
+      if (transactionReceipt.status !== 1) { 
+        alert('Failed to take book');
+      }
+      else{
+        const bookObj = await fetch(constants.GOOLE_BOOKS_API +
+          "isbn:" +
+          ISBN +
+          '&maxResults=40',
+        {
+          method: "GET"
+        })
+        const bookItems = (await bookObj.json()).items;
+        console.log(bookItems);
+        let takenBooks : any = localStorage.getItem('takenBooks');
+        if(takenBooks === null){
+          takenBooks = [];
+        }
+        else {
+          takenBooks = JSON.parse(takenBooks.toString())
+        }
+        takenBooks.push({book : bookItems, startDate : await library.getBlockNumber(), takenBy : this.state.address});
+        localStorage.setItem('takenBooks', JSON.stringify(takenBooks));
+      }
+      this.setState({
+        userBalance : formatEther(await libraryContract.getBalance())
+      });
     }
-    // console.log(await this.state.library.getBlockNumber());
-    await this.setState({ fetching: false });
+    catch(error){
+      alert(error.reason);
+    }
+    this.setState({ fetching: false });
     await this.getAvailableBooks();
   };
 
   public returnBook = async (ISBN : string) =>{
-    await this.setState({ fetching: true });
+    this.setState({ fetching: true });
     const { libraryContract } = this.state;
     const transaction = await libraryContract.returnBook(ethers.utils.keccak256(
-      ethers.utils.defaultAbiCoder.encode(["string"], [ISBN])),
-      {value: ethers.utils.parseEther("0.00000000000002")}
-    );
+      ethers.utils.defaultAbiCoder.encode(["string"], [ISBN])));
   
-    await this.setState({ transactionHash: transaction.hash });
+    this.setState({ transactionHash: transaction.hash });
     
     const transactionReceipt = await transaction.wait();
     await libraryContract.on("returnBookEvent", (id : any, book : any) => {
-      // console.log(id, book);
+      console.log(id, book);
     });
     if (transactionReceipt.status !== 1) { 
       alert('Failed to return book');
     }
-    // console.log(await this.state.library.getBlockNumber());
-    await this.setState({ fetching: false });
-    await this.getAvailableBooks();
+    else{
+      let takenBooks : any = localStorage.getItem('takenBooks');
+      takenBooks = JSON.parse(takenBooks.toString());
+      for(let i = 0; i < takenBooks.length; i++){
+        if(takenBooks[i].book[0].volumeInfo.industryIdentifiers[0].identifier === ISBN){
+          takenBooks.splice(i, 1);
+          localStorage.setItem('takenBooks', JSON.stringify(takenBooks));
+          break;
+        }
+      }
+      this.setState({
+        userBalance : formatEther(await libraryContract.getBalance())
+      });
+    }
+    this.setState({ fetching: false });
+    this.getAvailableBooks();
   };
   public subscribeToProviderEvents = async (provider:any) => {
     if (!provider.on) {
@@ -396,8 +720,8 @@ class App extends React.Component<any, any> {
     }
 
     provider.on("accountsChanged", this.changedAccount);
-    provider.on("networkChanged", this.networkChanged);
-    provider.on("close", this.close);
+    provider.on("chainChanged", this.networkChanged);
+    provider.on("disconnect", this.close);
 
     await this.web3Modal.off('accountsChanged');
   };
@@ -410,8 +734,8 @@ class App extends React.Component<any, any> {
     }
 
     provider.off("accountsChanged", this.changedAccount);
-    provider.off("networkChanged", this.networkChanged);
-    provider.off("close", this.close);
+    provider.off("chainChanged", this.networkChanged);
+    provider.off("disconnect", this.close);
   }
 
   public changedAccount = async (accounts: string[]) => {
@@ -419,7 +743,8 @@ class App extends React.Component<any, any> {
       // Metamask Lock fire an empty accounts array 
       await this.resetApp();
     } else {
-      await this.setState({ address: accounts[0] });
+      this.setState({address: accounts[0]})
+      await this.resetApp();
     }
   }
 
@@ -427,7 +752,7 @@ class App extends React.Component<any, any> {
     const library = new Web3Provider(this.provider);
     const network = await library.getNetwork();
     const chainId = network.chainId;
-    await this.setState({ chainId, library });
+    this.setState({ chainId, library });
   }
   
   public close = async () => {
@@ -459,14 +784,93 @@ class App extends React.Component<any, any> {
 
   };
 
+  public async onAttemptToApprove(amount : any) {
+      const { tokenContract, address, library } = this.state;
+      
+      const nonce = (await tokenContract.nonces(address)); // Our Token Contract Nonces
+      const deadline = + new Date() + 60 * 60; // Permit with deadline which the permit is valid
+      const wrapValue = parseEther(amount); // Value to approve for the spender to use
+      
+      const EIP712Domain = [ // array of objects -> properties from the contract and the types of them ircwithPermit
+          { name: 'name', type: 'string' },
+          { name: 'version', type: 'string' },
+          { name: 'verifyingContract', type: 'address' }
+      ];
+
+      const domain = {
+          name: await tokenContract.name(),
+          version: '1',
+          verifyingContract: tokenContract.address
+      };
+
+      const Permit = [ // array of objects -> properties from erc20withpermit
+          { name: 'owner', type: 'address' },
+          { name: 'spender', type: 'address' },
+          { name: 'value', type: 'uint256' },
+          { name: 'nonce', type: 'uint256' },
+          { name: 'deadline', type: 'uint256' }
+      ];
+
+      const message = {
+          owner: address,
+          spender: LIBRARY_ADDRESS,
+          value: wrapValue.toString(),
+          nonce: nonce.toHexString(),
+          deadline
+      };
+
+      const data = JSON.stringify({
+          types: {
+              EIP712Domain,
+              Permit
+          },
+          domain,
+          primaryType: 'Permit',
+          message
+      })
+
+      const signatureLike = await library.send('eth_signTypedData_v4', [address, data]);
+      const signature = await ethers.utils.splitSignature(signatureLike);
+
+      const preparedSignature = {
+          v: signature.v,
+          r: signature.r,
+          s: signature.s,
+          deadline
+      }
+
+      return preparedSignature;
+  }
+
+  public deposit = async () => {
+    this.setState({ fetching: true });
+    const { libraryContract } = this.state;
+    const bal = formatEther((this.state.depositAmount * 10e17).toString());
+    const transaction = await libraryContract.deposit({value : parseEther(bal)});
+  
+    this.setState({ transactionHash: transaction.hash });
+    
+    const transactionReceipt = await transaction.wait();
+    if (transactionReceipt.status !== 1) { 
+      alert('Failed to withdraw');
+    }
+    else{
+      this.setState({
+        userBalance : formatEther(await libraryContract.getBalance())
+      })
+    }
+    this.setState({ fetching: false });
+    this.home();
+  };
+
   public  renderAvailableBooks = () => {
     return (
       <div>
+      <h2> Available books </h2> 
       {
         this.state.availableBooks.map((data: any) =>
         <Book key = {data.id} bookObj = {data.volumeInfo}>
-            <Button children = "Take book" onClick = {() => this.takeBook(data.volumeInfo.industryIdentifiers[0].identifier)}/>
-            <Button children = "Return book" onClick = {() => this.returnBook(data.volumeInfo.industryIdentifiers[0].identifier)}/>
+            <Button children = "Take book" onClick = {() => this.borrowBook(data.volumeInfo.industryIdentifiers[0].identifier)}/>
         </Book>
         )
       }
@@ -474,16 +878,71 @@ class App extends React.Component<any, any> {
     )
   };
 
+  public renderDepositForm = () => {
+    return (
+      <div>
+        <form onSubmit={this.deposit}>
+          <input
+            type="number"
+            step="0.1"
+            placeholder="Deposit Amount"
+            value = {this.state.depositAmount}
+            onChange={this.updateDeposit}
+          />
+          <Button children = "Deposit" type="submit" disabled={this.state.depositAmount === 0}/>
+        </form>
+      </div>
+    )
+  };
+
+
+  public renderAddBookForm = () => {
+    return (
+      <div>
+        <form onSubmit={this.addBookCheck}>
+          <input
+            type="text"
+            placeholder="Book ISBN"
+            value = {this.state.ISBN}
+            maxLength = {13}
+            onChange={this.updateISBN}
+          />
+          <Button children = "Add book" type="submit" disabled={!this.state.validISBN}/>
+        </form>
+      </div>
+    )
+  };
+
+  public renderSearchBookForm = () => {
+    return (
+      <div>
+        <form onSubmit={this.searchForBook} >
+          <input
+            type="text"
+            placeholder="Book title/author/subtitle"
+            value = {this.state.searchText}
+            onChange={this.updateSearchText}
+          />
+          <Button type = "submit" children = "Search for book" onClick = {this.searchForBook} disabled = {!this.state.validSearch}/>
+        </form>  
+      </div>
+    )
+  };
+
   public renderSearchResults = () => {
     return (
       <div>
-      {
-        this.state.searchResult.map((data: any) =>
-        <Book key = {data.id} bookObj = {data.volumeInfo}>
-            <Button children = "Add Book" onClick = {() => this.addBook(data.volumeInfo.industryIdentifiers[0].identifier)}/>
-        </Book>
-        )
-      }
+        <div style = {{margin : "10px"}}>
+          <h2> Search Results </h2>
+          <Button children = "Reset search" onClick = {this.clearSearch}/> 
+        </div>
+        {
+          this.state.searchResult.map((data: any) =>
+          <Book key = {data.id} bookObj = {data.volumeInfo}>
+              <Button children = "Add Book" onClick = {() => this.addBook(data.volumeInfo.industryIdentifiers[0].identifier)}/>
+          </Book>
+          )
+        }
       </div>
     )
   };
@@ -493,35 +952,37 @@ class App extends React.Component<any, any> {
       address,
       connected,
       chainId,
-      fetching
+      fetching,
+      userBalance
     } = this.state;
     return (
       <SLayout>
-        <Column maxWidth={1000} spanHeight>
+        <Column spanHeight>
           <Header
             connected={connected}
             address={address}
             chainId={chainId}
+            balance = {userBalance}
             killSession={this.resetApp}
             >
-            <ul style = {{
-              backgroundColor: "#509cfc",
-              textAlign: "center",
-              borderRadius : "8px"
-
-            }}>
-              
-              {this.state.connected && <Button children = "Home" onClick={this.home} />}
-              {this.state.connected && <Button children = "Add book" onClick={this.addBookButton} />}
-              {this.state.connected && <Button children = "Taken books" onClick={this.currentlyTaken} />}
-              {this.state.connected && <Button children = "Book taking archive" onClick={this.takingArchive} />}
-              {this.state.connected && <Button children = "Withdraw" onClick={this.withdraw} />}
-            </ul>
-            </Header>
-          <div>
-            
-            {/* {this.state.connected && !this.state.addingBook && <Button children = "List available books" onClick={this.getAvailableBooks}/>} */}
-          </div>                            
+              {fetching ? (
+                <br/>
+              ) : (
+                <ul style = {{
+                  backgroundColor: "none",
+                  textAlign: "center",
+                  borderRadius : "8px"
+    
+                }}>
+                  {this.state.connected && <Button children = "Home" onClick={this.home} borderRadius = "8px  0 0 8px"/>}
+                  {this.state.connected && <Button children = "Add book" onClick={this.addBookButton} borderRadius = "0px"/>}
+                  {this.state.connected && <Button children = "Taken books" onClick={this.currentlyTakenButton} borderRadius = "0px" />}
+                  {this.state.connected && <Button children = "Book taking archive" onClick={this.takingArchiveButton} borderRadius = "0px" />}
+                  {this.state.connected && <Button children = "Deposit" onClick={this.depositButton} borderRadius = "0px" />}
+                  {this.state.connected && <Button children = "Withdraw" onClick={this.withdrawButton} borderRadius = "0  8px 8px 0"/>}
+                </ul>
+              )}
+            </Header>                      
           <SContent>
             {fetching ? (
               <Column center>
@@ -531,44 +992,54 @@ class App extends React.Component<any, any> {
               </Column>
             ) : (
               <SLanding center>
-
-                  {this.state.connected && this.state.addingBook &&
-                  
-                  <form onSubmit={this.addBookCheck}>
-                    <input
-                      type="text"
-                      placeholder="Book ISBN"
-                      value = {this.state.addingBookISBN}
-                      maxLength = {13}
-                      onChange={this.updateISBN}
-                    />
-                    <Button children = "Add book" type="submit" disabled={!this.state.validISBN}/>
-                  </form>
-                }
-                {this.state.connected && this.state.addingBook &&
-                  <form onSubmit={this.searchForBook} >
-                    <input
-                      type="text"
-                      placeholder="Book title/author/subtitle"
-                      value = {this.state.searchText}
-                      onChange={this.updateSearchText}
-                    />
-                    <Button type = "submit" children = "Search for book" onClick = {this.searchForBook} disabled = {!this.state.validSearch}/>
-                  </form>       
-                }
-
                 {!this.state.connected && <ConnectButton onClick={this.onConnect} />}
-            {!this.state.addingBook && this.state.connected && this.state.availableBooks.length > 0 &&  <h2> Available books </h2> }
-            {
-                !this.state.addingBook && 
-                this.state.connected && 
-                this.state.availableBooks.length > 0 &&
-                this.renderAvailableBooks()
-            }
-            { this.state.searchSuccess && <h2> Search Results </h2> }
-            { this.state.searchSuccess && <Button children = "Close search" onClick = {this.clearSearch}/> }
+                {
+                    this.state.takingArchivePage && 
+                    this.state.connected &&
+                    this.rendertakingArchive()    
+                }
+                {
+                    this.state.archiveSuccess && 
+                    this.state.connected &&
+                    this.renderarchiveResults()    
+                }
+                {
+                  this.state.depositPage && 
+                  this.state.connected &&
+                  this.renderDepositForm()
+                }
+                {
+                  this.state.withdrawPage && 
+                  this.state.connected &&
+                  this.renderWithdraw()
+                }
+                {
+                  this.state.connected &&
+                  this.state.addBookPage &&
+                  this.renderAddBookForm()
+                }
+                {
+                  this.state.connected &&
+                  this.state.addBookPage &&
+                  this.renderSearchBookForm()
+                }
+                {
+                    this.state.home && 
+                    this.state.connected && 
+                    this.state.availableBooks.length > 0 &&
+                    this.renderAvailableBooks()
+                }
+                {
+                  this.state.currentlyTakenPage && 
+                  this.state.connected &&
+                  this.renderCurrentlyTaken()
+                }
 
-            { this.state.searchSuccess && this.renderSearchResults() }
+
+                {  
+                  this.state.addBookPage && this.state.searchSuccess && 
+                  this.renderSearchResults() 
+                }
               </SLanding>
             )}
           </SContent>

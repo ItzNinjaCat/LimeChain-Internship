@@ -55,7 +55,7 @@ const SButton = styled.button<IButtonStyleProps>`
   color: ${({ outline, color }) =>
     outline ? `rgb(${colors[color]})` : `rgb(${colors.white})`};
   box-shadow: ${({ outline }) => (outline ? 'none' : `${shadows.soft}`)};
-  border-radius: 8px;
+  border-radius: ${({ borderRadius }) => `${borderRadius}`};
   font-size: ${fonts.size.medium};
   font-weight: ${fonts.weight.semibold};
   padding: ${({ icon, left }) =>

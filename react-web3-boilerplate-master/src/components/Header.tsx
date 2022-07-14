@@ -50,6 +50,15 @@ const SAddress = styled.p<IHeaderStyle>`
   font-weight: bold;
   margin: ${({ connected }) => (connected ? '-2px auto 0.7em' : '0')};
 `
+const SBalance = styled.p<IHeaderStyle>`
+font-size: 12px;
+font-family: monospace;
+font-weight: bold;
+position: absolute;
+right: 0;
+top: 15px;  
+`
+
 
 const SDisconnect = styled.div<IHeaderStyle>`
   transition: ${transitions.button};
@@ -57,7 +66,7 @@ const SDisconnect = styled.div<IHeaderStyle>`
   font-family: monospace;
   position: absolute;
   right: 0;
-  top: 20px;
+  top: 40px;
   opacity: 0.7;
   cursor: pointer;
 
@@ -76,6 +85,7 @@ interface IHeaderProps {
   connected: boolean
   address: string
   chainId: number
+  balance : number
   children?: React.ReactNode;
 }
 
@@ -93,8 +103,10 @@ const Header = (props: IHeaderProps) => {
       {props.children}
       {address && (
         <SActiveAccount>
+
           <SBlockie address={address} />
           <SAddress connected={connected}>{ellipseAddress(address)}</SAddress>
+          <SBalance  connected={connected} > Balance : {props.balance} LIB</SBalance>
           <SDisconnect connected={connected} onClick={killSession}>
             {'Disconnect'}
           </SDisconnect>
@@ -106,7 +118,7 @@ const Header = (props: IHeaderProps) => {
 
 Header.propTypes = {
   killSession: PropTypes.func.isRequired,
-  address: PropTypes.string
+  address: PropTypes.string,
 }
 
 export default Header

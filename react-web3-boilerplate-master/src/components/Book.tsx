@@ -55,6 +55,10 @@ const Book = (props : IProps) =>(
       props.bookObj.hasOwnProperty('categories') &&
       <p>Categories - {props.bookObj.categories.map((categorie : string )=> categorie).join(', ')}</p>
     }
+    {
+      props.bookObj.hasOwnProperty('industryIdentifiers') &&
+      <p>ISBN - {props.bookObj.industryIdentifiers[0].identifier}</p>
+    }
     {props.children}
   </div>
 )

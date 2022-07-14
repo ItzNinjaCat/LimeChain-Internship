@@ -3,17 +3,84 @@ const { ethers } = require("hardhat");
 const foo = "foo";
 const foo_bytes = "0xb93d94462a1aca054f8944d65bafc36d7b7f2256072a7eadbf1d4a240f4adef7";
 const bar = "bar";
+
+
 describe("Library contract", function () {
     let Library;
     let library;
+    let LibToken;
+    let libToken;
     let owner;
     let addr1;
+    let preparedSignatureOwner;
+    let preparedSignatureAddr1;
+
+    async function generateSignature(address, value) {
+      const nonce = (await libToken.nonces(address)); // Our Token Contract Nonces
+      const deadline = + new Date() + 60 * 60; // Permit with deadline which the permit is valid
+      const wrapValue = ethers.utils.parseEther(value); // Value to approve for the spender to use
+      
+      const EIP712Domain = [ // array of objects -> properties from the contract and the types of them ircwithPermit
+          { name: 'name', type: 'string' },
+          { name: 'version', type: 'string' },
+          { name: 'verifyingContract', type: 'address' }
+      ];
+    
+      const domain = {
+          name: await libToken.name(),
+          version: '1',
+          verifyingContract: libToken.address
+      };
+    
+      const Permit = [ // array of objects -> properties from erc20withpermit
+          { name: 'owner', type: 'address' },
+          { name: 'spender', type: 'address' },
+          { name: 'value', type: 'uint256' },
+          { name: 'nonce', type: 'uint256' },
+          { name: 'deadline', type: 'uint256' }
+      ];
+    
+      const message = {
+          owner: address,
+          spender: library.address,
+          value: wrapValue.toString(),
+          nonce: nonce.toHexString(),
+          deadline
+      };
+    
+      const data = JSON.stringify({
+          types: {
+              EIP712Domain,
+              Permit
+          },
+          domain,
+          primaryType: 'Permit',
+          message
+      })
+    
+      const signatureLike = await library.provider.send('eth_signTypedData_v4', [address, data]);
+      const signature = await ethers.utils.splitSignature(signatureLike)
+    
+       return ({
+          v: signature.v,
+          r: signature.r,
+          s: signature.s,
+          deadline
+      })
+    }
+    
+
     beforeEach(async function () {
       [owner, addr1] = await ethers.getSigners();
+      LibToken = await ethers.getContractFactory("LIB");
+      libToken = await LibToken.deploy();
+      await libToken.deployed();
       Library = await ethers.getContractFactory("Library");
-      library = await Library.deploy(200, 1);
+      library = await Library.deploy(ethers.utils.parseEther('0.1'), 1, libToken.address);
       await library.deployed();
       //library.provider.pollingInterval = 1;
+      // preparedSignatureOwner = await generateSignature(owner.address);
+      // preparedSignatureAddr1 = await generateSignature(addr1.address);
     });
     describe("Deployment", function () {
       it("Should set the right owner", async function () {
@@ -77,50 +144,106 @@ describe("Library contract", function () {
         // expect(receipt.events[3].args.book.previouslyTaken).to.deep.equal([]);
       });
       it("Should throw error for user that is not owner", async function () {
-        await expect(library.connect(addr1).getBalance()).to.be.revertedWith("Ownable: caller is not the owner");
+        await expect(library.connect(addr1).addBook(foo)).to.be.revertedWith("Ownable: caller is not the owner");
       });
     });
 
-    describe("takeBook tests", function () {
+    describe("borrowBook tests", function () {
       it("Should take a book and pay a fee", async function () {
         await library.addBook(foo);
-        const tx = await library.takeBook(foo_bytes, {value: ethers.utils.parseEther("0.00000000000000020")});
+        await library.deposit({value: ethers.utils.parseEther("1")});
+        preparedSignatureOwner = await generateSignature(owner.address, "0.3");
+        const tx = await library.borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureOwner.deadline, 
+          preparedSignatureOwner.v, 
+          preparedSignatureOwner.r, 
+          preparedSignatureOwner.s
+        );
+
         const receipt = await tx.wait();
-        expect(receipt.events[0].args.id).to.equal(foo_bytes);
-        expect(receipt.events[0].args.book.isbn).to.equal(foo);
-        expect(receipt.events[0].args.book.availableCopies).to.equal(0);
-        expect(receipt.events[0].args.book.previouslyTaken).to.deep.equal([owner.address]);
-      });
-      it("Should take a book and pay a fee and return the extra eth", async function () {
-        await library.addBook(foo);
-        const tx = await library.takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
-        const receipt = await tx.wait();
-        expect(receipt.events[0].args.id).to.equal(foo_bytes);
-        expect(receipt.events[0].args.book.isbn).to.equal(foo);
-        expect(receipt.events[0].args.book.availableCopies).to.equal(0);
-        expect(receipt.events[0].args.book.previouslyTaken).to.deep.equal([owner.address]);
+        expect(receipt.events[3].args.id).to.equal(foo_bytes);
+        expect(receipt.events[3].args.book.isbn).to.equal(foo);
+        expect(receipt.events[3].args.book.availableCopies).to.equal(0);
+        expect(receipt.events[3].args.book.previouslyTaken).to.deep.equal([owner.address]);
       });
 
       it("Should throw error for value < fee", async function () {
         await library.addBook(foo);
-        await expect(library.takeBook(foo_bytes, {value: ethers.utils.parseEther("0.00000000000000019")}))
-        .to.be.revertedWith("Not enough ether to borrow book");
+        await library.deposit({value: ethers.utils.parseEther("0.0001")});
+        preparedSignatureOwner = await generateSignature(owner.address, "0.000000001");
+        await expect(
+          library.borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.000000001"),
+          preparedSignatureOwner.deadline, 
+          preparedSignatureOwner.v, 
+          preparedSignatureOwner.r, 
+          preparedSignatureOwner.s
+        ))
+        .to.be.revertedWith("Token allowance too low");
       });
       it("Should throw error for user that already took this book ", async function () {
         await library.addBook(foo);
         await library.addBook(foo);
-        await library.takeBook(foo_bytes, {value: ethers.utils.parseEther("0.0000000000000002")});
-        await expect(library.takeBook(foo_bytes, {value: ethers.utils.parseEther("0.0000000000000002")}))
+        await library.deposit({value: ethers.utils.parseEther("1")});
+        preparedSignatureOwner = await generateSignature(owner.address, "0.3");
+        await library.borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureOwner.deadline, 
+          preparedSignatureOwner.v, 
+          preparedSignatureOwner.r, 
+          preparedSignatureOwner.s
+        )
+        preparedSignatureOwner = await generateSignature(owner.address, "0.3");
+        await expect(library.borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureOwner.deadline, 
+          preparedSignatureOwner.v, 
+          preparedSignatureOwner.r, 
+          preparedSignatureOwner.s
+        ))
         .to.be.revertedWith("User has already borrowed a copy of this book");
       });
       it("Should throw error for unavailable book(nonexistent)", async function () {
-        await expect(library.takeBook(foo_bytes, {value: ethers.utils.parseEther("0.0000000000000002")}))
+        await library.deposit({value: ethers.utils.parseEther("1")});
+        preparedSignatureOwner = await generateSignature(owner.address, "0.3");
+        await expect(library.borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureOwner.deadline, 
+          preparedSignatureOwner.v, 
+          preparedSignatureOwner.r, 
+          preparedSignatureOwner.s
+        ))
         .to.be.revertedWith("This book is not available");
       });
       it("Should throw error for unavailable book(already taken)", async function () {
         await library.addBook(foo);
-        await library.takeBook(foo_bytes, {value: ethers.utils.parseEther("0.0000000000000002")});
-        await expect(library.connect(addr1).takeBook(foo_bytes, {value: ethers.utils.parseEther("0.0000000000000002")}))
+        await library.deposit({value: ethers.utils.parseEther("1")});
+        preparedSignatureOwner = await generateSignature(owner.address, "0.3");
+        await library.borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureOwner.deadline, 
+          preparedSignatureOwner.v, 
+          preparedSignatureOwner.r, 
+          preparedSignatureOwner.s
+        )
+
+        await library.connect(addr1).deposit({value: ethers.utils.parseEther("1")});
+        preparedSignatureAddr1 = await generateSignature(addr1.address, "0.3");
+        await expect(library.connect(addr1).borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureAddr1.deadline, 
+          preparedSignatureAddr1.v, 
+          preparedSignatureAddr1.r, 
+          preparedSignatureAddr1.s
+        ))
         .to.be.revertedWith("Book is not currently not available");
       });
     });
@@ -128,48 +251,108 @@ describe("Library contract", function () {
     describe("returnBook tests", function () {
       it("Should return a book", async function () {
         await library.addBook(foo);
-        await library.takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
-        const tx = await library.returnBook(foo_bytes, {value: ethers.utils.parseEther("0.00000000000000020")});
+        await library.deposit({value: ethers.utils.parseEther("1")});
+        preparedSignatureOwner = await generateSignature(owner.address, "0.3");
+        await library.borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureOwner.deadline, 
+          preparedSignatureOwner.v, 
+          preparedSignatureOwner.r, 
+          preparedSignatureOwner.s
+        )
+        const tx = await library.returnBook(foo_bytes);
         const receipt = await tx.wait();
-        expect(receipt.events[0].args.id).to.equal(foo_bytes);
-        expect(receipt.events[0].args.book.isbn).to.equal(foo);
-        expect(receipt.events[0].args.book.availableCopies).to.equal(1);
-        expect(receipt.events[0].args.book.previouslyTaken).to.deep.equal([owner.address]);
+        expect(receipt.events[1].args.id).to.equal(foo_bytes);
+        expect(receipt.events[1].args.book.isbn).to.equal(foo);
+        expect(receipt.events[1].args.book.availableCopies).to.equal(1);
+        expect(receipt.events[1].args.book.previouslyTaken).to.deep.equal([owner.address]);
       });
       it("Should return book late and pay a fine", async function () {
         await library.addBook(foo);
+        await library.deposit({value: ethers.utils.parseEther("10")});
+        await library.connect(addr1).deposit({value: ethers.utils.parseEther("10")});
+
         expect(await library.getAvailableBooksLength()).to.deep.equal(1);
-        await library.connect(addr1).takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
+        preparedSignatureAddr1 = await generateSignature(addr1.address, "0.3");
+        await library.connect(addr1).borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureAddr1.deadline, 
+          preparedSignatureAddr1.v, 
+          preparedSignatureAddr1.r, 
+          preparedSignatureAddr1.s
+        );
         expect(await library.getAvailableBooksLength())
         .to.deep.equal(0);
         await library.connect(addr1).returnBook(foo_bytes);
         expect(await library.getAvailableBooksLength()).to.deep.equal(1);
         await library.addBook(foo);
-        await library.connect(addr1).takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
+        preparedSignatureAddr1 = await generateSignature(addr1.address, "0.3");
+        await library.connect(addr1).borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureAddr1.deadline, 
+          preparedSignatureAddr1.v, 
+          preparedSignatureAddr1.r, 
+          preparedSignatureAddr1.s
+        );
         expect(await library.getAvailableBooksLength()).to.deep.equal(1);
-        await library.takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
+        preparedSignatureOwner = await generateSignature(owner.address, "0.3");
+        await library.borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureOwner.deadline, 
+          preparedSignatureOwner.v, 
+          preparedSignatureOwner.r, 
+          preparedSignatureOwner.s
+        )
         expect(await library.getAvailableBooksLength())
         .to.deep.equal(0);
         await library.connect(addr1).returnBook(foo_bytes);
         await library.addBook(bar);
-        await library.returnBook(foo_bytes, {value: ethers.utils.parseEther("0.00000000000000040")});
+        await library.returnBook(foo_bytes);
         expect(await library.getAvailableBooksLength()).to.deep.equal(2);
         await library.addBook(foo);
         expect(await library.getAvailableBooksLength()).to.deep.equal(2);
-        await library.connect(addr1).takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
+        preparedSignatureAddr1 = await generateSignature(addr1.address, "0.3");
+        await library.connect(addr1).borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureAddr1.deadline, 
+          preparedSignatureAddr1.v, 
+          preparedSignatureAddr1.r, 
+          preparedSignatureAddr1.s
+        );
         expect(await library.getAvailableBooksLength())
         .to.deep.equal(2);
         await library.connect(addr1).returnBook(foo_bytes);
         expect(await library.getAvailableBooksLength()).to.deep.equal(2);
         await library.addBook(foo);
-        await library.connect(addr1).takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
+        preparedSignatureAddr1 = await generateSignature(addr1.address, "0.3");
+        await library.connect(addr1).borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureAddr1.deadline, 
+          preparedSignatureAddr1.v, 
+          preparedSignatureAddr1.r, 
+          preparedSignatureAddr1.s
+        );
         expect(await library.getAvailableBooksLength()).to.deep.equal(2);
-        await library.takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
+        preparedSignatureOwner = await generateSignature(owner.address, "0.3");
+        await library.borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureOwner.deadline, 
+          preparedSignatureOwner.v, 
+          preparedSignatureOwner.r, 
+          preparedSignatureOwner.s
+        )
         expect(await library.getAvailableBooksLength())
         .to.deep.equal(2);
         await library.connect(addr1).returnBook(foo_bytes);
         await library.addBook(bar);
-        await library.returnBook(foo_bytes, {value: ethers.utils.parseEther("0.00000000000000090")});
+        await library.returnBook(foo_bytes);
         expect(await library.getAvailableBooksLength()).to.deep.equal(2);
       });
       it("Should throw an error for a book the user has not taken", async function () {
@@ -181,47 +364,55 @@ describe("Library contract", function () {
         await expect(library.returnBook(foo_bytes))
         .to.be.revertedWith("This book is not available");
       });
-      it("Should throw an error for not enough ether to pay fine", async function () {
-        await library.addBook(foo);
-        expect(await library.getAvailableBooksLength()).to.deep.equal(1);
-        await library.connect(addr1).takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
-        expect(await library.getAvailableBooksLength())
-        .to.deep.equal(0);
-        await library.connect(addr1).returnBook(foo_bytes);
-        expect(await library.getAvailableBooksLength()).to.deep.equal(1);
-        await library.addBook(foo);
-        await library.connect(addr1).takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
-        expect(await library.getAvailableBooksLength()).to.deep.equal(1);
-        await library.takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
-        expect(await library.getAvailableBooksLength())
-        .to.deep.equal(0);
-        await library.connect(addr1).returnBook(foo_bytes);
-        await library.addBook(bar);
-        await expect(library.returnBook(foo_bytes, {value: ethers.utils.parseEther("0.00000000000000020")}))
-        .to.be.revertedWith("Not enough ether to pay penalty");
-        expect(await library.getAvailableBooksLength()).to.deep.equal(2);
-      });
     });
 
 
     describe("getAvailableBooks tests", function () {
       it("Should return an array with the ids of all available books", async function () {
         await library.addBook(foo);
+        await library.deposit({value: ethers.utils.parseEther("1")});
+
+        await library.connect(addr1).deposit({value: ethers.utils.parseEther("1")});
+        await libToken.connect(addr1).approve(library.address, 10000000000000);
         expect(await library.getAvailableBooksLength()).to.deep.equal(1);
-        await library.connect(addr1).takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
+        preparedSignatureAddr1 = await generateSignature(addr1.address, "0.3");
+        await library.connect(addr1).borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureAddr1.deadline, 
+          preparedSignatureAddr1.v, 
+          preparedSignatureAddr1.r, 
+          preparedSignatureAddr1.s
+        );
         expect(await library.getAvailableBooksLength())
         .to.deep.equal(0);
         await library.connect(addr1).returnBook(foo_bytes);
         expect(await library.getAvailableBooksLength()).to.deep.equal(1);
         await library.addBook(foo);
-        await library.connect(addr1).takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
+        preparedSignatureAddr1 = await generateSignature(addr1.address, "0.3");
+        await library.connect(addr1).borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureAddr1.deadline, 
+          preparedSignatureAddr1.v, 
+          preparedSignatureAddr1.r, 
+          preparedSignatureAddr1.s
+        );
         expect(await library.getAvailableBooksLength()).to.deep.equal(1);
-        await library.takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
+        preparedSignatureOwner = await generateSignature(owner.address, "0.3");
+        await library.borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureOwner.deadline, 
+          preparedSignatureOwner.v, 
+          preparedSignatureOwner.r, 
+          preparedSignatureOwner.s
+        )
         expect(await library.getAvailableBooksLength())
         .to.deep.equal(0);
         await library.connect(addr1).returnBook(foo_bytes);
         await library.addBook(bar);
-        await library.returnBook(foo_bytes, {value: ethers.utils.parseEther("0.00000000000000090")});
+        await library.returnBook(foo_bytes);
         expect(await library.getAvailableBooksLength()).to.deep.equal(2);
 
       });
@@ -230,36 +421,100 @@ describe("Library contract", function () {
     describe("withdraw tests", function () {
       it("Should withdraw all fees to the owners wallet", async function () {
         await library.addBook(foo);
-        await library.connect(addr1).takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
+        await library.connect(addr1).deposit({value: ethers.utils.parseEther("10")});
+        preparedSignatureAddr1 = await generateSignature(addr1.address, "0.3");
+        await library.connect(addr1).borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureAddr1.deadline, 
+          preparedSignatureAddr1.v, 
+          preparedSignatureAddr1.r, 
+          preparedSignatureAddr1.s
+        );
         await library.connect(addr1).returnBook(foo_bytes);
-        await library.connect(addr1).takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
+        preparedSignatureAddr1 = await generateSignature(addr1.address, "0.3");
+        await library.connect(addr1).borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureAddr1.deadline, 
+          preparedSignatureAddr1.v, 
+          preparedSignatureAddr1.r, 
+          preparedSignatureAddr1.s
+        );
+
         await library.connect(addr1).returnBook(foo_bytes);
-        await library.connect(addr1).takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
+        preparedSignatureAddr1 = await generateSignature(addr1.address, "0.3");
+        await library.connect(addr1).borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureAddr1.deadline, 
+          preparedSignatureAddr1.v, 
+          preparedSignatureAddr1.r, 
+          preparedSignatureAddr1.s
+        );
         await library.connect(addr1).returnBook(foo_bytes);
-        await library.connect(addr1).takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
+        preparedSignatureAddr1 = await generateSignature(addr1.address, "0.3");
+        await library.connect(addr1).borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureAddr1.deadline, 
+          preparedSignatureAddr1.v, 
+          preparedSignatureAddr1.r, 
+          preparedSignatureAddr1.s
+        );
         await library.connect(addr1).returnBook(foo_bytes);
-        expect(await library.getBalance()).to.equal(ethers.BigNumber.from("800"));
+        expect(await library.getLibraryBalance()).to.equal(ethers.BigNumber.from("400000000000000000"));
         await library.withdraw();
-        expect(await library.getBalance()).to.equal(ethers.BigNumber.from("0"));
+        expect(await library.getLibraryBalance()).to.equal(ethers.BigNumber.from("0"));
       });
-      it("Should throw error for no fees to ne withdrawn", async function () {
+      it("Should throw error for no fees to be withdrawn", async function () {
         await expect(library.withdraw()).to.be.revertedWith("No fees to be withdrawn");
-        expect(await library.getBalance()).to.equal(ethers.BigNumber.from("0"));
+        expect(await library.getLibraryBalance()).to.equal(ethers.BigNumber.from("0"));
       });
       it("Should throw error for user that is not owner", async function () {
-        await expect(library.connect(addr1).getBalance()).to.be.revertedWith("Ownable: caller is not the owner");
+        await expect(library.connect(addr1).withdraw()).to.be.revertedWith("Ownable: caller is not the owner");
       });
     });
     
     describe("getBalance tests", function () {
-      it("Should return a the total amount of fees taken", async function () {
-        expect(await library.getBalance()).to.equal(ethers.BigNumber.from("0"));
+      it("Should return the balance of the user", async function () {
+        expect(await library.getLibraryBalance()).to.equal(ethers.BigNumber.from("0"));
         await library.addBook(foo);
-        await library.takeBook(foo_bytes, {value: ethers.utils.parseEther("0.001")});
-        expect(await library.getBalance()).to.equal(ethers.BigNumber.from("200"));
+        await library.deposit({value: ethers.utils.parseEther("1")});
+        preparedSignatureOwner = await generateSignature(owner.address, "0.3");
+        await library.borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureOwner.deadline, 
+          preparedSignatureOwner.v, 
+          preparedSignatureOwner.r, 
+          preparedSignatureOwner.s
+        );
+        expect(await library.getBalance()).to.equal(ethers.BigNumber.from("700000000000000000"));
+        await library.returnBook(foo_bytes);
+        expect(await library.getBalance()).to.equal(ethers.BigNumber.from("900000000000000000"));
+      });
+    });
+
+    describe("getLibraryBalance tests", function () {
+      it("Should return the total amount of fees taken", async function () {
+        expect(await library.getLibraryBalance()).to.equal(ethers.BigNumber.from("0"));
+        await library.addBook(foo);
+        await library.deposit({value: ethers.utils.parseEther("1")});
+ 
+        preparedSignatureOwner = await generateSignature(owner.address, "0.3");
+        await library.borrowBook(
+          foo_bytes,
+          ethers.utils.parseEther("0.3"),
+          preparedSignatureOwner.deadline, 
+          preparedSignatureOwner.v, 
+          preparedSignatureOwner.r, 
+          preparedSignatureOwner.s
+        );
+        expect(await library.getLibraryBalance()).to.equal(ethers.BigNumber.from("100000000000000000"));
       });
       it("Should throw error for user that is not owner", async function () {
-        await expect(library.connect(addr1).getBalance()).to.be.revertedWith("Ownable: caller is not the owner");
+        await expect(library.connect(addr1).getLibraryBalance()).to.be.revertedWith("Ownable: caller is not the owner");
       });
     });
 
@@ -307,6 +562,15 @@ describe("Library contract", function () {
         await library.addBook(foo);
         await expect(library.getBook("0xb93d94462a1aca054f8944d65bafc36d7b7f2256072a7eadbf1d4a240f4adef9"))
         .to.be.revertedWith("This book is not available");
+      });
+    });
+
+    describe("getBooksCount tests", function () {
+      it("Should return the amount of books in the library", async function () {
+        await library.addBook(foo);
+        expect(await library.getBooksCount()).to.equal(1);
+        await library.addBook(bar);
+        expect(await library.getBooksCount()).to.equal(2);
       });
     });
 });
