@@ -98,6 +98,7 @@ interface IAppState {
   libraryBalance : number;
   archiveResults : any | null;
   archiveSuccess : boolean;
+  returnSuccess : boolean;
 }
 
 const INITIAL_STATE: IAppState = {
@@ -131,7 +132,8 @@ const INITIAL_STATE: IAppState = {
   currentBlock : 0,
   libraryBalance : 0,
   archiveResults : null,
-  archiveSuccess : false
+  archiveSuccess : false,
+  returnSuccess : false
 };
 
 class App extends React.Component<any, any> {
@@ -279,7 +281,6 @@ class App extends React.Component<any, any> {
       })
       const bookObj = (await response.json()).items;
       const taken = Array.from(new Set(book.previouslyTaken))
-      console.log(taken)
       if(bookObj.length > 0){
         this.setState({
           archiveResults : ({book : bookObj[0].volumeInfo, takenBy : taken}),
@@ -288,7 +289,6 @@ class App extends React.Component<any, any> {
           ISBN : "",
           validISBN : false,
         })
-        console.log(this.state.archiveResults)
       }
     }
     catch(err){
@@ -307,6 +307,10 @@ class App extends React.Component<any, any> {
             value = {this.state.ISBN}
             maxLength = {13}
             onChange={this.updateISBN}
+            style = {{
+              borderRadius : "8px",
+              margin : "8px"
+            }}
           />
           <Button children = "Search archive" type="submit" disabled={!this.state.validISBN}/>
         </form>
@@ -383,7 +387,7 @@ class App extends React.Component<any, any> {
         books.splice(i, 1);
       }
     }
-    if(books.length === 0){
+    if(books.length === 0 && !this.state.returnSuccess){
       alert("You currently have not taken any books");
       this.home();
       return;
@@ -399,7 +403,8 @@ class App extends React.Component<any, any> {
       addBookPage: false,
       limit : (await libraryContract.returnBlockLimit()).toNumber(),
       currentBlock : (await library.getBlockNumber()),
-      takenBooks : books
+      takenBooks : books,
+      returnSuccess : false
     });
     this.setState({ fetching : false});
   };
@@ -407,14 +412,16 @@ class App extends React.Component<any, any> {
   public renderWithdraw = () => {
     return (
       <div>
+        {this.state.connected && <Button children = "Withdraw" onClick={this.withdraw} />}
         <p
         style ={{
           fontSize: "24px",
           fontFamily: "monospace",
           fontWeight: "bold"
         }}
-        >Fees available for withdrawing :  {this.state.libraryBalance} LIB (ETH:LIB - 1:1)</p>
-        {this.state.connected && <Button children = "Withdraw" onClick={this.withdraw} />}
+        >
+          Fees available for withdrawing :  {this.state.libraryBalance} LIB (ETH:LIB - 1:1)
+        </p>
       </div>
     )
   };
@@ -430,7 +437,7 @@ class App extends React.Component<any, any> {
             key = {data.book[0].id} bookObj = {data.book[0].volumeInfo}
             color = {
               this.calculateTime(limit, currentBlock, data.startDate) > 0 ? 
-              "#4099ff80" : "red"
+              "#ccecff" : "#ffa6a6"
             }
           >
             <p > Blocks left before fine - {
@@ -496,7 +503,6 @@ class App extends React.Component<any, any> {
           responseJson.items.splice(index, 1);
         }
       });
-      // console.log(responseJson.items);
       if(responseJson.items.length > 0){
         this.setState({
           searchResult : responseJson.items,
@@ -514,8 +520,7 @@ class App extends React.Component<any, any> {
   };
 
   public addBook = async (ISBN : any) => {
-    await this.setState({ fetching: true });
-    // console.log(ISBN);
+    this.setState({ fetching: true });
     const { libraryContract } = this.state;
     try{
       const transaction = await libraryContract.addBook(ISBN);
@@ -523,7 +528,7 @@ class App extends React.Component<any, any> {
       
       const transactionReceipt = await transaction.wait();
       await libraryContract.on("addBookEvent", (id : any, book : any) => {
-        console.log(book);
+        console.log(id, book);
       });
       if (transactionReceipt.status !== 1) { 
         alert('Failed to add book');
@@ -627,7 +632,6 @@ class App extends React.Component<any, any> {
     this.setState({ fetching: false });
   };
 
-
   public borrowBook = async (ISBN : string) =>{
     this.setState({ fetching: true });
     const { library, libraryContract } = this.state;
@@ -645,8 +649,8 @@ class App extends React.Component<any, any> {
       this.setState({ transactionHash: transaction.hash });
       
       const transactionReceipt = await transaction.wait();
-      await libraryContract.on("borrowBookEvent", (id : any, book : any) => {
-        console.log(id, book);
+      await libraryContract.on("borrowBookEvent", (address : any, id : any, book : any) => {
+        console.log(address, id, book);
       });
       if (transactionReceipt.status !== 1) { 
         alert('Failed to take book');
@@ -660,7 +664,6 @@ class App extends React.Component<any, any> {
           method: "GET"
         })
         const bookItems = (await bookObj.json()).items;
-        console.log(bookItems);
         let takenBooks : any = localStorage.getItem('takenBooks');
         if(takenBooks === null){
           takenBooks = [];
@@ -676,7 +679,7 @@ class App extends React.Component<any, any> {
       });
     }
     catch(error){
-      alert(error.reason);
+      alert(error);
     }
     this.setState({ fetching: false });
     await this.getAvailableBooks();
@@ -691,8 +694,8 @@ class App extends React.Component<any, any> {
     this.setState({ transactionHash: transaction.hash });
     
     const transactionReceipt = await transaction.wait();
-    await libraryContract.on("returnBookEvent", (id : any, book : any) => {
-      console.log(id, book);
+    await libraryContract.on("returnBookEvent", (address : any, id : any, book : any) => {
+      console.log(address, id, book);
     });
     if (transactionReceipt.status !== 1) { 
       alert('Failed to return book');
@@ -701,7 +704,7 @@ class App extends React.Component<any, any> {
       let takenBooks : any = localStorage.getItem('takenBooks');
       takenBooks = JSON.parse(takenBooks.toString());
       for(let i = 0; i < takenBooks.length; i++){
-        if(takenBooks[i].book[0].volumeInfo.industryIdentifiers[0].identifier === ISBN){
+        if(takenBooks[i].book[0].volumeInfo.industryIdentifiers[0].identifier === ISBN && takenBooks[i].takenBy === this.state.address){
           takenBooks.splice(i, 1);
           localStorage.setItem('takenBooks', JSON.stringify(takenBooks));
           break;
@@ -710,10 +713,14 @@ class App extends React.Component<any, any> {
       this.setState({
         userBalance : formatEther(await libraryContract.getBalance())
       });
+      this.setState({ returnSuccess : true });
+      await this.currentlyTakenButton();
     }
     this.setState({ fetching: false });
     this.getAvailableBooks();
+    this.home();
   };
+
   public subscribeToProviderEvents = async (provider:any) => {
     if (!provider.on) {
       return;
@@ -743,8 +750,16 @@ class App extends React.Component<any, any> {
       // Metamask Lock fire an empty accounts array 
       await this.resetApp();
     } else {
-      this.setState({address: accounts[0]})
-      await this.resetApp();
+      this.setState({
+        address: accounts[0],
+      })
+      const libraryContract = getContract(constants.LIBRARY_ADDRESS, constants.LIBRARY.abi, this.state.library, this.state.address);
+      const tokenContract = getContract(constants.LIBRARY_TOKEN_ADDRESS, constants.LIBRARY_TOKEN.abi,  this.state.library, this.state.address);
+      this.setState({
+        libraryContract,
+        tokenContract,
+        userBalance: formatEther(await libraryContract.getBalance())
+      })
     }
   }
 
@@ -888,9 +903,26 @@ class App extends React.Component<any, any> {
             placeholder="Deposit Amount"
             value = {this.state.depositAmount}
             onChange={this.updateDeposit}
+            style = {{
+              borderRadius : "8px",
+              margin : "8px"
+            }}
+            min="0"
           />
           <Button children = "Deposit" type="submit" disabled={this.state.depositAmount === 0}/>
         </form>
+        <p
+        style ={{
+          fontSize: "24px",
+          fontFamily: "monospace",
+          fontWeight: "bold"
+        }}
+        >
+          Balance after deposit :      { 
+            ethers.utils.formatEther(ethers.BigNumber.from(Math.floor(this.state.userBalance * 10e17 + this.state.depositAmount * 10e17).toString())) 
+          }
+          LIB (ETH:LIB - 1:1)
+        </p>
       </div>
     )
   };
@@ -906,6 +938,10 @@ class App extends React.Component<any, any> {
             value = {this.state.ISBN}
             maxLength = {13}
             onChange={this.updateISBN}
+            style = {{
+              borderRadius : "8px",
+              margin : "8px"
+            }}
           />
           <Button children = "Add book" type="submit" disabled={!this.state.validISBN}/>
         </form>
@@ -916,14 +952,19 @@ class App extends React.Component<any, any> {
   public renderSearchBookForm = () => {
     return (
       <div>
-        <form onSubmit={this.searchForBook} >
+        <form onSubmit={this.searchForBook}>
           <input
             type="text"
             placeholder="Book title/author/subtitle"
             value = {this.state.searchText}
             onChange={this.updateSearchText}
+            style = {{
+              borderRadius : "8px",
+              margin : "8px"
+            }}
           />
-          <Button type = "submit" children = "Search for book" onClick = {this.searchForBook} disabled = {!this.state.validSearch}/>
+          <Button type = "submit" children = "Search for book" onClick = {this.searchForBook} disabled = {!this.state.validSearch}
+          />
         </form>  
       </div>
     )

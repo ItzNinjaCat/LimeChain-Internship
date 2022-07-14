@@ -17,6 +17,8 @@ const Book = (props : IProps) =>(
     height : props.height,
     width : props.width,
     padding : props.padding,
+    margin : "10px",
+    borderRadius : "25px"
   }}>
     {
       props.bookObj.hasOwnProperty('imageLinks') &&
@@ -66,7 +68,7 @@ const Book = (props : IProps) =>(
 
 Book.defaultProps = {
   borderStyle: "hidden",
-  color: "#4099ff80",
+  color: "#ccecff",
   height: "auto",
   width: "500px",
   bookObj : null,
