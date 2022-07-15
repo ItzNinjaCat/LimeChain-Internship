@@ -61,6 +61,18 @@ const Book = (props : IProps) =>(
       props.bookObj.hasOwnProperty('industryIdentifiers') &&
       <p>ISBN - {props.bookObj.industryIdentifiers[0].identifier}</p>
     }
+    {
+      props.bookObj.hasOwnProperty('previewLink') && 
+      <p><a href={props.bookObj.previewLink}>Preview Link</a></p>
+    }
+    {
+      props.bookObj.hasOwnProperty('infoLink') && 
+      <p><a href={props.bookObj.infoLink}>Info Link</a></p>
+    }
+    {
+      props.bookObj.hasOwnProperty('canonicalVolumeLink') &&  
+      <p><a href={props.bookObj.canonicalVolumeLink}>Canonical Volume Link</a></p>
+    }
     {props.children}
   </div>
 )

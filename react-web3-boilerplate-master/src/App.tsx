@@ -162,7 +162,7 @@ class App extends React.Component<any, any> {
   }
 
   public onConnect = async () => {
-
+    
     this.provider = await this.web3Modal.connect();
 
     const library = new Web3Provider(this.provider);
@@ -337,19 +337,19 @@ class App extends React.Component<any, any> {
       this.clearSearch();
       this.clearArchive();
       this.setState({
+        libraryBalance : formatEther(await this.state.libraryContract.getLibraryBalance()),
         home : false,
         depositPage : false,
         withdrawPage : true,
         takingArchivePage : false,
         currentlyTakenPage : false,
-        addBookPage: false,
-        libraryBalance : formatEther(await this.state.libraryContract.getLibraryBalance())
+        addBookPage: false
       });
       this.setState({ fetching : false })
     }
     catch(error){
       alert(error.reason)
-      this.home();
+      this.setState({ fetching : false })
     }
 
   };
@@ -382,14 +382,23 @@ class App extends React.Component<any, any> {
     else {
       books = JSON.parse(books.toString())
     }
-    for(let i = 0; i < books.length; i++){
-      if(books[i].takenBy !== this.state.address){
-        books.splice(i, 1);
+    const indexes : any = []
+    books.map((data : any, index : number) => {
+      if(data.takenBy !== this.state.address){
+        indexes.push(index);
       }
-    }
+    });
+    indexes.sort();
+    indexes.map((index : number) => {
+      books.splice(indexes[index],1);
+      for(let j = index; j < indexes.length; j++){
+        indexes[j]--;
+    }  
+    });
+
     if(books.length === 0 && !this.state.returnSuccess){
       alert("You currently have not taken any books");
-      this.home();
+      this.setState({ fetching : false})
       return;
     }
     this.clearSearch();
@@ -412,7 +421,7 @@ class App extends React.Component<any, any> {
   public renderWithdraw = () => {
     return (
       <div>
-        {this.state.connected && <Button children = "Withdraw" onClick={this.withdraw} />}
+        {this.state.connected && <Button children = "Withdraw" onClick={this.withdraw} disabled = {this.state.libraryBalance > 0 ? false : true}/>}
         <p
         style ={{
           fontSize: "24px",
@@ -486,23 +495,26 @@ class App extends React.Component<any, any> {
       alert("No results");
     }
     else{
+      const indexes : any = []
       responseJson.items.map((data : any , index :  number) => {
         if(data.volumeInfo.industryIdentifiers){
           data.volumeInfo.industryIdentifiers.map((identifier : any) => {
             if(identifier.type === "OTHER"){
-              try{
-                responseJson.items.splice(index, 1);
-              }
-              catch{
-                // pass
-             }
+              indexes.push(index);
             }
           })
         }
         else{
-          responseJson.items.splice(index, 1);
+          indexes.push(index);
         }
       });
+      indexes.sort();
+      for(let i = 0; i < indexes.length; i++){
+        responseJson.items.splice(indexes[i],1);
+        for(let j = i; j < indexes.length; j++){
+            indexes[j]--;
+        } 
+      }
       if(responseJson.items.length > 0){
         this.setState({
           searchResult : responseJson.items,
@@ -554,12 +566,13 @@ class App extends React.Component<any, any> {
     {
       method: "GET"
     })
+    const responseJson = (await response.json());
     this.setState({ fetching: false });
-    if((await response.json()).totalItems === 0){
+    if(responseJson.totalItems === 0){
       alert("Incorrect ISBN");
     }
     else{
-      this.addBook(ISBN);
+      this.addBook(responseJson.items[0].volumeInfo.industryIdentifiers[0].identifier);
     }
     this.setState({
       ISBN : "",
@@ -612,18 +625,18 @@ class App extends React.Component<any, any> {
     const availableLen = await libraryContract.getAvailableBooksLength();
     const avaialbleISBN = [];
     for(let i = 0; i < availableLen; i++){
-      avaialbleISBN.push((await libraryContract.getAvailableBook(i)).isbn);
+      avaialbleISBN.push((await libraryContract.getAvailableBook(i)));
     }
     const availableBooksTmp : any = [];
     await Promise.all(avaialbleISBN.map( async (data : any) => {
       const response = await fetch(constants.GOOLE_BOOKS_API +
         "isbn:" +
-        data +
+        data.isbn +
         '&maxResults=40',
       {
         method: "GET"
       })
-      availableBooksTmp.push((await response.json()).items[0])
+      availableBooksTmp.push({book : (await response.json()).items[0], copies : data.availableCopies})
     }))
 
     this.setState({
@@ -775,7 +788,7 @@ class App extends React.Component<any, any> {
   }
 
   public getNetwork = () => getChainData(this.state.chainId).network;
-
+  
   public getProviderOptions = () => {
     const providerOptions = {
       walletconnect: {
@@ -884,8 +897,9 @@ class App extends React.Component<any, any> {
       <h2> Available books </h2> 
       {
         this.state.availableBooks.map((data: any) =>
-        <Book key = {data.id} bookObj = {data.volumeInfo}>
-            <Button children = "Take book" onClick = {() => this.borrowBook(data.volumeInfo.industryIdentifiers[0].identifier)}/>
+        <Book key = {data.book.id} bookObj = {data.book.volumeInfo}>
+            <p>Available Copies - {data.copies}</p>
+            <Button children = "Take book" onClick = {() => this.borrowBook(data.book.volumeInfo.industryIdentifiers[0].identifier)}/>
         </Book>
         )
       }
@@ -920,8 +934,7 @@ class App extends React.Component<any, any> {
         >
           Balance after deposit :      { 
             ethers.utils.formatEther(ethers.BigNumber.from(Math.floor(this.state.userBalance * 10e17 + this.state.depositAmount * 10e17).toString())) 
-          }
-          LIB (ETH:LIB - 1:1)
+          } LIB (ETH:LIB - 1:1)
         </p>
       </div>
     )

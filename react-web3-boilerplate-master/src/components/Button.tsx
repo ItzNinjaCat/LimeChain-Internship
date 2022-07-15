@@ -60,7 +60,7 @@ const SButton = styled.button<IButtonStyleProps>`
   font-weight: ${fonts.weight.semibold};
   padding: ${({ icon, left }) =>
     icon ? (left ? '7px 12px 8px 28px' : '7px 28px 8px 12px') : '8px 12px'};
-  cursor: ${({ disabled }) => (disabled ? 'auto' : 'pointer')};
+  cursor: ${({ disabled }) => (disabled ? 'not-allowed' : 'pointer')};
   will-change: transform;
 
   &:disabled {
