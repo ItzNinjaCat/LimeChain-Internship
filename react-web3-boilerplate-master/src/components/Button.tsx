@@ -11,6 +11,7 @@ interface IButtonStyleProps {
   disabled: boolean
   icon: any
   left: boolean
+  borderRadius : string
 }
 
 interface IButtonProps extends IButtonStyleProps {
@@ -54,7 +55,7 @@ const SButton = styled.button<IButtonStyleProps>`
   color: ${({ outline, color }) =>
     outline ? `rgb(${colors[color]})` : `rgb(${colors.white})`};
   box-shadow: ${({ outline }) => (outline ? 'none' : `${shadows.soft}`)};
-  border-radius: 8px;
+  border-radius: ${({ borderRadius }) => `${borderRadius}`};
   font-size: ${fonts.size.medium};
   font-weight: ${fonts.weight.semibold};
   padding: ${({ icon, left }) =>
@@ -112,6 +113,7 @@ const Button = (props: IButtonProps) => (
     outline={props.outline}
     color={props.color}
     disabled={props.disabled}
+    borderRadius={props.borderRadius}
     icon={props.icon}
     left={props.left}
     {...props}
@@ -129,7 +131,8 @@ Button.defaultProps = {
   color: 'lightBlue',
   disabled: false,
   icon: null,
-  left: false
+  left: false,
+  borderRadius : "8px"
 }
 
-export default Button
+export default Button;

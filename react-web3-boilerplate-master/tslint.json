@@ -14,8 +14,7 @@
     "jsx-no-lambda": false,
     "jsx-boolean-value": false,
     "no-var-requires": false,
-    "no-console": false,
-    "array-type": false
+    "no-console": false
 
   },
   "linterOptions": {

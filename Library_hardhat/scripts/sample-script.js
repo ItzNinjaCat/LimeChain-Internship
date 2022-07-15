@@ -14,8 +14,12 @@ async function main() {
   // await hre.run('compile');
 
   // We get the contract to deploy
+  const LibToken = await hre.ethers.getContractFactory("LIB"); 
+  const libToken = await LibToken.deploy(); 
+  await libToken.deployed(); 
+  console.log("LibraryToken deployed to:", libToken.address);
   const Library = await hre.ethers.getContractFactory("Library"); 
-  const library = await Library.deploy(150); 
+  const library = await Library.deploy(ethers.utils.parseEther("0.1"), 10000, libToken.address); 
   await library.deployed(); 
   console.log("Library deployed to:", library.address);
 }

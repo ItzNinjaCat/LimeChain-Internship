@@ -26,7 +26,7 @@ task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
   networks: { 
     ropsten: { 
       url: `https://ropsten.infura.io/v3/${process.env.ROPSTEN_API_KEY}`, 
-      accounts: [`${process.env.PRIVATE_KEY}`] 
+      accounts: [`${process.env.PRIVATE_KEY_OWNER}`, `${process.env.PRIVATE_KEY_ADDR1}`] 
     } 
   },
   etherscan: {
